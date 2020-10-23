@@ -5,7 +5,7 @@ const lineReader = require("serverline")
 const connection = {socket: null, username: null, room: null};
  
 lineReader.init()
-lineReader.setCompletion(["/help", "/login", "/chatWith", "/joinChat", "/chats", "/leave", "/logoff"])
+lineReader.setCompletion(["/help", "/login", "/chat", "/join", "/chats", "/leave", "/logoff"])
 lineReader.setPrompt(getPrompt());
 
 function getPrompt() {
@@ -92,8 +92,8 @@ lineReader.on("line", function(line) {
   switch (cmd) {
     case "/help":
       console.log(chalk.yellow("/login [username]") + ": logs in with specified username");
-      console.log(chalk.yellow("/chatWith [username]") + ": start chatting with username or group");
-      console.log(chalk.yellow("/joinChat [id]") + ": joins a chat");
+      console.log(chalk.yellow("/chat [username]") + ": start chatting with username");
+      console.log(chalk.yellow("/join [id]") + ": joins a chat by its identifier");
       console.log(chalk.yellow("/chats") + ": shows your chats");
       console.log(chalk.yellow("/leave") + ": leaves current chat");
       console.log(chalk.yellow("/logoff") + ": logs off from current user");
@@ -104,17 +104,17 @@ lineReader.on("line", function(line) {
       else
         console.log(chalk.red("You must first /logoff to log in again."))
       break;
-    case "/chatWith":
+    case "/chat":
       if (loggedIn() && !connectedToRoom())
         chatWith(parameter1);
       else
         console.log(chalk.red("Couldn't execute that command. Not logged in or already chatting."))
       break;
-    case "/joinChat":
-      if (loggedIn() && !connectedToRoom())
+    case "/join":
+      if (loggedIn())
         joinChat(parameter1);
       else
-        console.log(chalk.red("Couldn't execute that command. Not logged in or already chatting."))
+        console.log(chalk.red("Couldn't execute that command. Not logged in."))
       break;
     case "/chats":
       if (loggedIn())
@@ -187,11 +187,13 @@ function addChatEvents() {
 
   addSocketEvent("join-chat", (result) => {
     if (result.available) {
+      if (connectedToRoom())
+        leaveChat();
       console.log(chalk.green("Joined to chat #" + result.id));
       connection.room = result.id;
-    } else
+    } else {
       console.log(chalk.red("Couldn't join that chat"));
-      connection.room = null;
+    }
   })
 
   addSocketEvent("query-chats", (chats) => {

@@ -118,14 +118,16 @@ io.on("connection", (socket) => {
     socket.on("join-chat", (id) => { 
         log(username + " wants to join chat " + id);
         const availableChat = chats.has(id);
+
+        socket.emit("join-chat", {
+            available: availableChat,
+            id: id
+        });
+
         if (availableChat)  {
             socket.join(id);
             sendChatMessages(username, id);
         }
-        socket.emit("join-chat", {
-            available : availableChat,
-            id: id
-        });
     })
 
     socket.on("query-chats", () => { 
