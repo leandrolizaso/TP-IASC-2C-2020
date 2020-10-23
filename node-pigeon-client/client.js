@@ -7,6 +7,11 @@ const connection = {socket: null, username: null, room: null};
 lineReader.init()
 lineReader.setCompletion(["/help", "/login", "/chat", "/join", "/chats", "/leave", "/logoff"])
 lineReader.setPrompt(getPrompt());
+welcome();
+
+function welcome() {
+  console.log(chalk.green("Welcome to Pigeon client, type " + chalk.whiteBright("/help") + " to see available commands"));
+}
 
 function getPrompt() {
   return chalk.cyanBright("> ");
@@ -82,6 +87,18 @@ function isEmpty(array) {
   return array.length === 0;
 }
 
+const stdRL = lineReader.getRL();
+stdRL._writeToOutput = (function(write) {
+  return function _writeToOutput(argStringToWrite) {
+    let stringToWrite = argStringToWrite
+    
+    if (stringToWrite[stringToWrite.length-1] === "\n" && connectedToRoom())
+      stringToWrite = "";
+
+    write.call(stdRL, stringToWrite)
+  }
+})(stdRL._writeToOutput)
+
 lineReader.on("line", function(line) {
 
   const words = getWords(line);
@@ -145,9 +162,11 @@ lineReader.on("line", function(line) {
  
 lineReader.on("SIGINT", function(rl) {
   rl.question("Do you really want to quit? (y/n): ", (answer) => {
-    if (answer.match(/^y(es)?$/i)) 
+    if (answer.match(/^y(es)?$/i)) {
+      console.log(chalk.whiteBright("Bye!"));
       process.exit(0);
-    console.log();
+    }
+    rl.output.write(getPrompt());
   });
 })
 
