@@ -53,6 +53,7 @@ function leaveChat() {
 function disconnect() {
   connection.socket.disconnect();
   connection.username = null;
+  connection.room = null;
   console.log(chalk.magenta("Logged off!"));
 }
 
@@ -165,7 +166,8 @@ function addConnectionEvents() {
   addSocketEvent("reconnect", () => {
     connection.socket.off();
     addConnectionEvents();
-    addChatEvents();
+    if (connection.room)
+      joinChat(connection.room);
   })
 }
 
@@ -185,10 +187,11 @@ function addChatEvents() {
 
   addSocketEvent("join-chat", (result) => {
     if (result.available) {
-      console.log(chalk.green("Joined to chat!"));
+      console.log(chalk.green("Joined to chat #" + result.id));
       connection.room = result.id;
     } else
       console.log(chalk.red("Couldn't join that chat"));
+      connection.room = null;
   })
 
   addSocketEvent("query-chats", (chats) => {

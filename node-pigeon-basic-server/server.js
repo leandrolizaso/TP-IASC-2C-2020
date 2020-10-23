@@ -39,7 +39,7 @@ function isPrivateChat(chat, username, otherUsername) {
 
 function getPrivateChat(username, otherUsername) {
     const privateChat = [... chats].find(([_, chat]) => isPrivateChat(chat, username, otherUsername));
-    return privateChat ? privateChat.id : null;
+    return privateChat ? privateChat[0] : null;
 }
 
 function createPrivateChat(users) {
