@@ -238,7 +238,10 @@ function addChatEvents() {
 
   addSocketEvent("chat-invite", (invite) => {
     if (invite.username !== connection.username)
-      console.log(chalk.yellow(invite.username + " invited you to join a private chat. Type /join " + invite.id));
+      console.log(chalk.yellow(invite.username + " invited you to join a private chat. Type ") +
+                  chalk.whiteBright("/join " + invite.id) +
+                  chalk.yellow(" or ") +
+                  chalk.whiteBright("/chat " + invite.username));
   })
 
   addSocketEvent("messages", (envelopes) => {
