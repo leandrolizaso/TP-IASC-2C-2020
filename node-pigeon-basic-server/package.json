@@ -1,0 +1,11 @@
+{
+  "name": "node-pigeon-basic-server",
+  "version": "1.0.0",
+  "main": "server.js",
+  "author": "iasc-grupo-1",
+  "license": "MIT",
+  "dependencies": {
+    "nanoid": "^3.1.13",
+    "socket.io": "^2.3.0"
+  }
+}
