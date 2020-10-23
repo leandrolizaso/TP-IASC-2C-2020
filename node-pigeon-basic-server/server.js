@@ -24,12 +24,13 @@ function isUserConnected(username) {
 
 function authorizeUser(username, socket) {
     const connected = isUserConnected(username)
-    if (isUserConnected(username)) {
+    if (connected) {
         log(username + " was already connected");
     } else {
         log(username + " connected");
         registerUser(username, socket.id);
     }
+    socket.authorized = !connected;
     socket.emit("authorization", connected);
 }
 
@@ -85,6 +86,11 @@ function saveMessage(room, envelope) {
     chat.messages.push(envelope);
 }
 
+function canJoinChat(username, chatID) {
+    const chat = chats.get(chatID);
+    return chat && chat.users.includes(username);
+}
+
 io.on("connection", (socket) => {
 
     const username = socket.handshake.query.username;
@@ -117,7 +123,7 @@ io.on("connection", (socket) => {
 
     socket.on("join-chat", (id) => { 
         log(username + " wants to join chat " + id);
-        const availableChat = chats.has(id);
+        const availableChat = canJoinChat(username, id);
 
         socket.emit("join-chat", {
             available: availableChat,
@@ -141,8 +147,10 @@ io.on("connection", (socket) => {
     })
 
     socket.on("disconnect", () => {
-        users.delete(username);
-        log(username + " disconnected");
+        if (socket.authorized) {
+            users.delete(username);
+            log(username + " disconnected");
+        }
     })
 })
 

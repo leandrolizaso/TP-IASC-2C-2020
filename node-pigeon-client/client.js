@@ -50,10 +50,14 @@ function leaveChat() {
   console.log(chalk.yellow("Chat left successfully"));
 }
 
-function disconnect() {
+function setToDefaultConnection() {
   connection.socket.disconnect();
   connection.username = null;
   connection.room = null;
+}
+
+function disconnect() {
+  setToDefaultConnection();
   console.log(chalk.magenta("Logged off!"));
 }
 
@@ -152,10 +156,15 @@ function addSocketEvent(eventName, callback) {
 }
 
 function addConnectionEvents() {
-  addSocketEvent("authorization", () => {
-    console.log(chalk.green("Login success"));
-    username = connection.socket.io.opts.query.username;
-    addChatEvents();
+  addSocketEvent("authorization", (alreadyLogged) => {
+    if (!alreadyLogged) {
+      console.log(chalk.green("Login success"));
+      username = connection.socket.io.opts.query.username;
+      addChatEvents();
+    } else {
+      console.log(chalk.red("User is already logged in!"));
+      setToDefaultConnection();
+    }
   })
 
   addSocketEvent("reconnecting", (reason) => {
@@ -166,8 +175,10 @@ function addConnectionEvents() {
   addSocketEvent("reconnect", () => {
     connection.socket.off();
     addConnectionEvents();
-    if (connection.room)
+    if (connection.room) {
       joinChat(connection.room);
+      connection.room = null;
+    }
   })
 }
 
@@ -208,9 +219,7 @@ function addChatEvents() {
 
   addSocketEvent("chat-invite", (invite) => {
     if (invite.username !== connection.username)
-      console.log(chalk.yellow(invite.username + " invited you to join a private chat. Type /joinChat " + invite.id));
-    else
-    console.log(chalk.yellow("Nice, a chat only for (you)!"));
+      console.log(chalk.yellow(invite.username + " invited you to join a private chat. Type /join " + invite.id));
   })
 
   addSocketEvent("messages", (envelopes) => {
