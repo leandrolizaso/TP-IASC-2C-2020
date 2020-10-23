@@ -91,6 +91,12 @@ function canJoinChat(username, chatID) {
     return chat && chat.users.includes(username);
 }
 
+function connectedToRoom(id, username) {
+    const socket = io.sockets.connected[users.get(username)];
+    const rooms = Object.keys(socket.rooms);
+    return rooms.includes(id);
+}
+
 io.on("connection", (socket) => {
 
     const username = socket.handshake.query.username;
@@ -116,7 +122,9 @@ io.on("connection", (socket) => {
             socket.join(chatID);
             socket.emit("chat-with", chatID);
             sendChatMessages(username, chatID);
-            inviteUserToChat(username, otherUsername, chatID);
+            if (!connectedToRoom(chatID, otherUsername)) {
+                inviteUserToChat(username, otherUsername, chatID);
+            }
         } else
             socket.emit("chat-with", null);
     })
