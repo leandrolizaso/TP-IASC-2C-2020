@@ -119,12 +119,11 @@ function isEmpty(array) {
 const stdRL = lineReader.getRL();
 stdRL._writeToOutput = (function(write) {
   return function _writeToOutput(argStringToWrite) {
-    let stringToWrite = argStringToWrite
-    
-    if (stringToWrite[stringToWrite.length-1] === "\n" && connectedToRoom())
+    let stringToWrite = argStringToWrite;
+    if (stdRL.line[0] !== "/" && stringToWrite[stringToWrite.length-1] === "\n" && connectedToRoom()) {
       stringToWrite = "";
-
-    write.call(stdRL, stringToWrite)
+    }
+    write.call(stdRL, stringToWrite);
   }
 })(stdRL._writeToOutput)
 
