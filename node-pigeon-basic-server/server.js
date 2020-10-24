@@ -5,13 +5,17 @@ const port = 3000;
 const log = console.log;
 
 const chats = new Map();
-// {key: 6 character nanoid, value: {messages: [], users: [], isGroup: Boolean}}
+// {key: 6 character nanoid, value: {messages: [], users: Map{key: username, value: isAdmin}, isGroup: Boolean}}
 
 const users = new Map();
 // {key: username, value: socket id}
 
 function generateID() {
     return nanoid(6);
+}
+
+function getMapKeys(map) {
+    return [... map.keys()];
 }
 
 function registerUser(username, id) {
@@ -34,38 +38,73 @@ function authorizeUser(username, socket) {
     socket.emit("authorization", connected);
 }
 
-function isPrivateChat(chat, username, otherUsername) {
-    return !chat.isGroup && chat.users.includes(username) && chat.users.includes(otherUsername);
+function isChatMember(chatID, username) {
+    const chat = chats.get(chatID);
+    return chat.users.has(username);
+}
+
+function isPrivateChat(chatID, username, otherUsername) {
+    const chat = chats.get(chatID);
+    return !chat.isGroup && isChatMember(chatID, username) && isChatMember(chatID, otherUsername);
 }
 
 function getPrivateChat(username, otherUsername) {
-    const privateChat = [... chats].find(([_, chat]) => isPrivateChat(chat, username, otherUsername));
+    const privateChat = [... chats].find(([id, _]) => isPrivateChat(id, username, otherUsername));
     return privateChat ? privateChat[0] : null;
 }
 
 function createPrivateChat(users) {
     const id = generateID();
-    chats.set(id, {messages: [], users: users, isGroup: false});
+    const chat = {
+        messages: [],
+        users: new Map(),
+        isGroup: false
+    }
+    users.forEach(user => chat.users.set(user));
+    chats.set(id, chat);
     return id;
 }
 
-function inviteUserToChat(username, otherUsername, chatID) {
+function createGroupChat(username) {
+    const id = generateID();
+    const chat = {
+        messages: [],
+        users: new Map(),
+        isGroup: true
+    }
+    chat.users.set(username, true);
+    chats.set(id, chat);
+    return id;
+}
+
+function addUserToChat(username, chatID) {
+    const chat = chats.get(chatID);
+    chat.users.set(username, false);
+}
+
+function notifyUser(motive, username, otherUsername, chatID, data) {
     const socketID = users.get(otherUsername);
-    io.to(socketID).emit("chat-invite", {
+    io.to(socketID).emit(motive, {
         username: username, 
-        id: chatID
+        id: chatID,
+        data: data
     });
 }
 
-function isChatUser(chat, username) {
-    return chat.users.includes(username);
+function inviteUserToChat(username, otherUsername, chatID) {
+    notifyUser("chat-invite", username, otherUsername, chatID);
+}
+
+function inviteUserToGroupChat(username, otherUsername, chatID) {
+    addUserToChat(otherUsername, chatID);
+    notifyUser("chat-group-invite", username, otherUsername, chatID);
 }
 
 function getUserChats(username) {
-    const userChats = [... chats].filter(([_, chat]) => isChatUser(chat, username))
+    const userChats = [... chats].filter(([id, chat]) => isChatMember(id, username))
     return userChats.map(([id, chat]) => {return {
         id: id,
-        users: chat.users,
+        users: getMapKeys(chat.users),
         group: chat.isGroup
     }});
 }
@@ -88,13 +127,32 @@ function saveMessage(room, envelope) {
 
 function canJoinChat(username, chatID) {
     const chat = chats.get(chatID);
-    return chat && chat.users.includes(username);
+    return chat && isChatMember(chatID, username);
 }
 
 function connectedToRoom(id, username) {
     const socket = io.sockets.connected[users.get(username)];
     const rooms = Object.keys(socket.rooms);
     return rooms.includes(id);
+}
+
+function isGroupAdmin(chatID, username) {
+    const chat = chats.get(chatID);
+    return chat.users.get(username);
+}
+
+function removeUserFromGroupChat(username, otherUsername, chatID) {
+    const chat = chats.get(chatID);
+    chat.users.delete(otherUsername);
+    if (isUserConnected(otherUsername))
+        notifyUser("chat-group-remove", username, otherUsername, chatID);
+}
+
+function setPrivilege(adminStatus, otherUsername, username, chatID) {
+    const chat = chats.get(chatID);
+    chat.users.set(otherUsername, adminStatus);
+    if (isUserConnected(otherUsername))
+        notifyUser("chat-group-privilege", username, otherUsername, chatID, {admin: adminStatus});
 }
 
 io.on("connection", (socket) => {
@@ -127,6 +185,44 @@ io.on("connection", (socket) => {
             }
         } else
             socket.emit("chat-with", null);
+    })
+
+    socket.on("create-group", () => {
+        log(username + " wants to create a group");
+        let chatID = createGroupChat(username);
+        socket.join(chatID);
+        socket.emit("create-group", chatID);
+    })
+
+    socket.on("invite-to-group", (groupInvite) => {
+        const chatID = groupInvite.chatID;
+        const otherUsername = groupInvite.username;
+        log(username + " wants to invite to group " + otherUsername);
+        const canInvite = isUserConnected(otherUsername) && isGroupAdmin(chatID, username) && !isChatMember(chatID, otherUsername);
+        if (canInvite) 
+            inviteUserToGroupChat(username, otherUsername, chatID);
+        socket.emit("invite-to-group", canInvite);
+    })
+
+    socket.on("remove-from-group", (groupRemove) => {
+        const chatID = groupRemove.chatID;
+        const otherUsername = groupRemove.username;
+        log(username + " wants to remove from group " + otherUsername);
+        const canRemove = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username);
+        if (canRemove) 
+            removeUserFromGroupChat(username, otherUsername, chatID);
+        socket.emit("remove-from-group", canRemove);
+    })
+
+    socket.on("privilege", (permission) => {
+        const otherUsername = permission.username;
+        const adminStatus = permission.admin ;
+        const chatID = permission.chatID;
+        log(username + " wants to set privilege to" + otherUsername);
+        const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
+        if (canSetPrivilege) 
+            setPrivilege(adminStatus, otherUsername, username, chatID);
+        socket.emit("privilege", canSetPrivilege);
     })
 
     socket.on("join-chat", (id) => { 
