@@ -5,13 +5,17 @@ const port = 3000;
 const log = console.log;
 
 const chats = new Map();
-// {key: 6 character nanoid, value: {messages: [], users: Map{key: username, value: isAdmin}, isGroup: Boolean}}
+// {key: 4 character nanoid, value: {
+//                                      messages: Map{key: timestamp, value: {message, username}}, 
+//                                      users: Map{key: username, value: isAdmin}, 
+//                                      isGroup: Boolean}
+//                                  }
 
 const users = new Map();
 // {key: username, value: socket id}
 
 function generateID() {
-    return nanoid(6);
+    return nanoid(4);
 }
 
 function getMapKeys(map) {
@@ -60,11 +64,11 @@ function getPrivateChat(username, otherUsername) {
 function createPrivateChat(users) {
     const id = generateID();
     const chat = {
-        messages: [],
+        messages: new Map(),
         users: new Map(),
         isGroup: false
     }
-    users.forEach(user => chat.users.set(user));
+    users.forEach(user => chat.users.set(user, false));
     chats.set(id, chat);
     return id;
 }
@@ -72,7 +76,7 @@ function createPrivateChat(users) {
 function createGroupChat(username) {
     const id = generateID();
     const chat = {
-        messages: [],
+        messages: new Map(),
         users: new Map(),
         isGroup: true
     }
@@ -113,20 +117,33 @@ function getUserChats(username) {
     }});
 }
 
-function isEmpty(array) {
-    return array.length === 0;
+function isEmpty(collection) {
+    return collection.length === 0 || collection.size === 0;
+}
+
+function getEnvelopes(messages) {
+    const timestamps = getMapKeys(messages);
+    return timestamps.map(timestamp => {
+        const envelope = Object.assign({}, messages.get(timestamp));
+        envelope.timestamp = timestamp;
+        return envelope;
+    })
 }
 
 function sendChatMessages(username, chatID) {
     const socketID = users.get(username);
     const chat = chats.get(chatID);
     if (!isEmpty(chat.messages))
-        io.to(socketID).emit("messages", chat.messages);
+        io.to(socketID).emit("messages", getEnvelopes(chat.messages));
 }
 
 function saveMessage(room, envelope) {
+    const message = {
+        message: envelope.message,
+        username: envelope.username
+    }
     const chat = chats.get(room);
-    chat.messages.push(envelope);
+    chat.messages.set(envelope.timestamp, message);
 }
 
 function canJoinChat(username, chatID) {
@@ -159,6 +176,34 @@ function setPrivilege(adminStatus, otherUsername, username, chatID) {
         notifyUser("chat-group-privilege", username, otherUsername, chatID, {admin: adminStatus});
 }
 
+function isMessageOwner(chatID, timestamp, username) {
+    const chat = chats.get(chatID);
+    const envelope = chat.messages.get(timestamp);
+    return (envelope && envelope.username === username);
+}
+
+function messageExists(envelope) {
+    const chat = chats.get(envelope.chatID);
+    return chat.messages.has(envelope.timestamp);
+}
+
+function canEditMessage(username, envelope) {
+    const chatID = envelope.chatID;
+    const timestamp = envelope.timestamp;
+    return isChatMember(chatID, username) && messageExists(envelope) && (isGroupAdmin(chatID, username) || (isMessageOwner(chatID, timestamp, username)))
+}
+
+function editMessage(newEnvelope) {
+    const chat = chats.get(newEnvelope.chatID);
+    const envelope = chat.messages.get(newEnvelope.timestamp);
+    envelope.message = newEnvelope.message;
+}
+
+function deleteMessage(envelope) {
+    const chat = chats.get(envelope.chatID);
+    chat.messages.delete(envelope.timestamp);
+}
+
 io.on("connection", (socket) => {
 
     const username = socket.handshake.query.username;
@@ -168,11 +213,32 @@ io.on("connection", (socket) => {
     socket.on("message", (data) => {
         log(data);
         const envelope = {
+            timestamp: Date.now(),
             message: data.message,
             username: username
         }
-        socket.to(data.room).emit("message", envelope);
+        io.to(data.room).emit("message", envelope);
         saveMessage(data.room, envelope);
+    })
+
+    socket.on("edit-message", (envelope) => {
+        log(username + " wants to edit message " + envelope.timestamp);
+        const canEdit = canEditMessage(username, envelope);
+        if (canEdit) {
+            editMessage(envelope);
+            socket.to(envelope.chatID).emit("edited-message", envelope);
+        }
+        socket.emit("edit-message", canEdit);
+    })
+
+    socket.on("delete-message", (envelope) => {
+        log(username + " wants to delete message " + envelope.timestamp);
+        const canDelete = canEditMessage(username, envelope);
+        if (canDelete) {
+            deleteMessage(envelope);
+            socket.to(envelope.chatID).emit("deleted-message", envelope);
+        }
+        socket.emit("delete-message", canDelete);
     })
 
     socket.on("chat-with", (otherUsername) => {
@@ -222,7 +288,7 @@ io.on("connection", (socket) => {
         const otherUsername = permission.username;
         const adminStatus = permission.admin ;
         const chatID = permission.chatID;
-        log(username + " wants to set privilege to" + otherUsername);
+        log(username + " wants to set privilege to " + otherUsername);
         const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
         if (canSetPrivilege) 
             setPrivilege(adminStatus, otherUsername, username, chatID);

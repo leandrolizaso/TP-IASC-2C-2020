@@ -3,9 +3,10 @@ const socketIO = require("socket.io-client");
 const chalk = require("chalk");  
 const lineReader = require("serverline")
 const connection = {socket: null, username: null, room: null};
+const currentMessages = [];
  
 lineReader.init()
-lineReader.setCompletion(["/help", "/login", "/chat", "/join", "/makeAdmin", "/removeAdmin", "/kick", "/chats", "/leave", "/logoff"])
+lineReader.setCompletion(["/help", "/login", "/chat", "/join", "/makeAdmin", "/removeAdmin", "/kick", "/edit", "/delete", "/chats", "/leave", "/logoff"])
 lineReader.setPrompt(getPrompt());
 welcome();
 
@@ -105,15 +106,69 @@ function connectedToRoom() {
 
 function sendMessage(message) {
   const cleanMessage = message.split("\n")[0];
-  console.log(chalk.gray(connection.username) + ": " + cleanMessage);
   send("message", {
     message: cleanMessage,
     room: connection.room
   })
 }
 
+function addMessage(envelope) {
+  const messageID = currentMessages.length;
+  currentMessages.push(envelope);
+  if (envelope.username === connection.username)
+    console.log(chalk.whiteBright("[#" + messageID + "] ") + chalk.gray(envelope.username) + ": " + envelope.message);
+  else
+    console.log(chalk.whiteBright("[#" + messageID + "] ") + chalk.blueBright(envelope.username) + ": " + envelope.message);
+}
+
+function editMessage(id, newMessage) {
+  const envelope = currentMessages[id];
+  if (envelope) {
+    const newEnvelope = Object.assign({}, envelope);
+    newEnvelope.message = newMessage;
+    newEnvelope.chatID = connection.room;
+    send("edit-message", newEnvelope);
+  } else
+    console.log(chalk.red("There's no message with ID #" + id));
+}
+
+function deleteMessage(id) {
+  const envelope = currentMessages[id];
+  if (envelope) {
+    const newEnvelope = Object.assign({}, envelope);
+    newEnvelope.chatID = connection.room;
+    send("delete-message", newEnvelope);
+  } else
+    console.log(chalk.red("There's no message with ID #" + id));
+}
+
+function getMessageIndex(timestamp) {
+  return currentMessages.findIndex(envelope => envelope && envelope.timestamp === timestamp);
+}
+
+function editedMessage(newEnvelope) {
+  const envelopeIndex = getMessageIndex(newEnvelope.timestamp);
+  if (envelopeIndex >= 0) {
+    const envelope = currentMessages[envelopeIndex];
+    envelope.message = newEnvelope.message;
+    console.log(chalk.white("[#" + envelopeIndex + "-edited] ") + chalk.blueBright(envelope.username) + ": " + envelope.message);
+  }
+}
+
+function deletedMessage(envelope) {
+  const envelopeIndex = getMessageIndex(envelope.timestamp);
+  if (envelopeIndex >= 0) {
+    currentMessages[envelopeIndex] = null;
+    console.log(chalk.whiteBright("[#" + envelopeIndex + "] ") + chalk.blueBright(envelope.username) + ": " + chalk.redBright("Message deleted"));
+  }
+}
+
 function isEmpty(array) {
   return array.length === 0;
+}
+
+function clearMessages() {
+  return currentMessages.length = 0;
 }
 
 const stdRL = lineReader.getRL();
@@ -132,6 +187,7 @@ lineReader.on("line", function(line) {
   const words = getWords(line);
   const cmd = words[0] || "";
   const parameter1 = words[1] || "";
+  const text = words.slice(2).join(" ");
 
   if (connectedToRoom() && line[0] !== "/") {
     sendMessage(line);
@@ -148,6 +204,8 @@ lineReader.on("line", function(line) {
       console.log(chalk.yellow("/makeAdmin [username]") + ": gives admin status to an user");
       console.log(chalk.yellow("/removeAdmin [username]") + ": revokes user's admin status");
       console.log(chalk.yellow("/kick [username]") + ": removes user from group");
+      console.log(chalk.yellow("/edit [id] [message]") + ": edit a message by its identifier");
+      console.log(chalk.yellow("/delete [id]") + ": deletes a message by its identifier");
       console.log(chalk.yellow("/chats") + ": shows your chats");
       console.log(chalk.yellow("/leave") + ": leaves current chat");
       console.log(chalk.yellow("/logoff") + ": logs off from current user");
@@ -203,6 +261,18 @@ lineReader.on("line", function(line) {
       else
         console.log(chalk.red("Couldn't execute that command. Not logged in."))
       break;
+    case "/edit":
+      if (loggedIn() && connectedToRoom())
+        editMessage(parameter1, text);
+      else
+        console.log(chalk.red("Couldn't execute that command. There's no active chat."))
+      break;
+    case "/delete":
+      if (loggedIn() && connectedToRoom())
+        deleteMessage(parameter1);
+      else
+        console.log(chalk.red("Couldn't execute that command. There's no active chat."))
+      break;
     case "/chats":
       if (loggedIn())
         showChats();
@@ -232,7 +302,7 @@ lineReader.on("SIGINT", function(rl) {
       console.log(chalk.whiteBright("Bye!"));
       process.exit(0);
     }
-    rl.output.write(getPrompt());
+    rl.output.write("\n" + getPrompt());
   });
 })
 
@@ -269,8 +339,29 @@ function addConnectionEvents() {
 
 function addChatEvents() {
   addSocketEvent("message", (envelope) => {
-    const { message, username } = envelope;
-    console.log(chalk.blueBright(username) + ": " + message);
+    addMessage(envelope);
+  })
+
+  addSocketEvent("edit-message", (canEdit) => {
+    if (canEdit)
+      console.log(chalk.green("Message was edited successfully!"));
+    else
+      console.log(chalk.red("Couldn't edit message. No permission/inexistent message"));
+  })
+
+  addSocketEvent("edited-message", (envelope) => {
+    editedMessage(envelope);
+  })
+
+  addSocketEvent("delete-message", (canDelete) => {
+    if (canDelete)
+      console.log(chalk.green("Message was deleted successfully!"));
+    else
+      console.log(chalk.red("Couldn't delete message. No permission/inexistent message"));
+  })
+
+  addSocketEvent("deleted-message", (envelope) => {
+    deletedMessage(envelope);
   })
 
   addSocketEvent("chat-with", (chatID) => {
@@ -279,6 +370,7 @@ function addChatEvents() {
         leaveChat();
       connection.room = chatID;
       console.log(chalk.yellow("Joined to chat #" + chatID));
+      clearMessages();
     } else
       console.log(chalk.red("User is not connected, couldn't send invitation."));
   })
@@ -289,6 +381,7 @@ function addChatEvents() {
         leaveChat();
       console.log(chalk.yellow("Joined to chat #" + result.id));
       connection.room = result.id;
+      clearMessages();
     } else {
       console.log(chalk.red("Couldn't join that chat"));
     }
@@ -297,8 +390,9 @@ function addChatEvents() {
   addSocketEvent("create-group", (chatID) => {
     if (connectedToRoom())
       leaveChat();
-    console.log(chalk.yellow("Joined to chat #" + chatID));
+    console.log(chalk.yellow("Joined to group chat #" + chatID));
     connection.room = chatID;
+    clearMessages();
   })
 
   addSocketEvent("query-chats", (chats) => {
@@ -369,10 +463,7 @@ function addChatEvents() {
 
   addSocketEvent("messages", (envelopes) => {
     envelopes.forEach(envelope => {
-      if (envelope.username === connection.username)
-        console.log(chalk.gray(envelope.username) + ": " + envelope.message);
-      else
-        console.log(chalk.blueBright(envelope.username) + ": " + envelope.message);
+      addMessage(envelope);
     })
   })
 }
