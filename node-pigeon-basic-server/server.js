@@ -201,7 +201,7 @@ function editMessage(newEnvelope) {
 
 function deleteMessage(envelope) {
     const chat = chats.get(envelope.chatID);
-    chat.messages.delete(envelope.timestamp);
+    return chat.messages.delete(envelope.timestamp);
 }
 
 io.on("connection", (socket) => {
@@ -219,6 +219,22 @@ io.on("connection", (socket) => {
         }
         io.to(data.room).emit("message", envelope);
         saveMessage(data.room, envelope);
+    })
+
+    socket.on("secure-message", (data) => {
+        log(data);
+        const envelope = {
+            timestamp: Date.now(),
+            message: data.message,
+            username: username,
+            chatID: data.room
+        }
+        io.to(data.room).emit("message", envelope);
+        saveMessage(data.room, envelope);
+        setTimeout(() => {
+            if (deleteMessage(envelope))
+                io.to(data.room).emit("deleted-message", envelope);
+        }, data.timeout * 1000);
     })
 
     socket.on("edit-message", (envelope) => {

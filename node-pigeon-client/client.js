@@ -6,7 +6,7 @@ const connection = {socket: null, username: null, room: null};
 const currentMessages = [];
  
 lineReader.init()
-lineReader.setCompletion(["/help", "/login", "/chat", "/join", "/makeAdmin", "/removeAdmin", "/kick", "/edit", "/delete", "/chats", "/leave", "/logoff"])
+lineReader.setCompletion(["/help", "/login", "/chat", "/join", "/secure", "/makeAdmin", "/removeAdmin", "/kick", "/edit", "/delete", "/chats", "/leave", "/logoff"])
 lineReader.setPrompt(getPrompt());
 welcome();
 
@@ -163,6 +163,15 @@ function deletedMessage(envelope) {
   }
 }
 
+function sendSecureMessage(seconds, message) {
+  const cleanMessage = message.split("\n")[0];
+  send("secure-message", {
+    timeout: seconds,
+    message: cleanMessage,
+    room: connection.room
+  })
+}
+
 function isEmpty(array) {
   return array.length === 0;
 }
@@ -199,6 +208,7 @@ lineReader.on("line", function(line) {
       console.log(chalk.yellow("/login [username]") + ": logs in with specified username");
       console.log(chalk.yellow("/chat [username]") + ": start chatting with username");
       console.log(chalk.yellow("/join [id]") + ": joins a chat by its identifier");
+      console.log(chalk.yellow("/secure [s] [message]") + ": sends a message that will last "+chalk.yellowBright("s")+" seconds");
       console.log(chalk.yellow("/group") + ": creates and joins to a new group");
       console.log(chalk.yellow("/add") + ": add user to group");
       console.log(chalk.yellow("/makeAdmin [username]") + ": gives admin status to an user");
@@ -231,6 +241,12 @@ lineReader.on("line", function(line) {
       else
         console.log(chalk.red("Couldn't execute that command. Not logged in."))
       break;
+    case "/secure":
+      if (loggedIn() && connectedToRoom())
+        sendSecureMessage(parameter1, text);
+      else
+        console.log(chalk.red("Couldn't execute that command. There's no active chat."))
+      break;
     case "/group":
       if (loggedIn())
         createGroup();
@@ -238,28 +254,28 @@ lineReader.on("line", function(line) {
         console.log(chalk.red("Couldn't execute that command. Not logged in."))
       break;
     case "/add":
-      if (loggedIn())
+      if (loggedIn() && connectedToRoom())
         addUserToGroup(parameter1);
       else
-        console.log(chalk.red("Couldn't execute that command. Not logged in."))
+        console.log(chalk.red("Couldn't execute that command. There's no active chat."))
       break;
     case "/makeAdmin":
-      if (loggedIn())
+      if (loggedIn() && connectedToRoom())
         setAdminStatus(parameter1, true);
       else
-        console.log(chalk.red("Couldn't execute that command. Not logged in."))
+        console.log(chalk.red("Couldn't execute that command. There's no active chat."))
       break;
     case "/removeAdmin":
-      if (loggedIn())
+      if (loggedIn() && connectedToRoom())
         setAdminStatus(parameter1, false);
       else
-        console.log(chalk.red("Couldn't execute that command. Not logged in."))
+        console.log(chalk.red("Couldn't execute that command. There's no active chat."))
       break;
     case "/kick":
-      if (loggedIn())
+      if (loggedIn() && connectedToRoom())
         kickUser(parameter1);
       else
-        console.log(chalk.red("Couldn't execute that command. Not logged in."))
+        console.log(chalk.red("Couldn't execute that command. There's no active chat."))
       break;
     case "/edit":
       if (loggedIn() && connectedToRoom())
