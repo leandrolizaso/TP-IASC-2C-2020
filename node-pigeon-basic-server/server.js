@@ -1,8 +1,10 @@
 const http = require("http").createServer();
 const io = require("socket.io")(http);
 const { nanoid } = require("nanoid");
-const port = 3000;
+const args = process.argv;
+const port = args[2];
 const log = console.log;
+const socketIO = require("socket.io-client");
 
 const chats = new Map();
 // {key: 4 character nanoid, value: {
@@ -13,6 +15,15 @@ const chats = new Map();
 
 const users = new Map();
 // {key: username, value: socket id}
+
+function connectToBalancer() {
+  var opts = { 	
+
+       query: { type: 'nodo', url: port }
+   }
+
+  return socketIO('http://localhost:4000', opts)
+}
 
 function generateID() {
     return nanoid(4);
@@ -205,6 +216,8 @@ function deleteMessage(envelope) {
 }
 
 io.on("connection", (socket) => {
+    
+    console.log(socket.handshake);
 
     const username = socket.handshake.query.username;
 
@@ -343,5 +356,7 @@ io.on("connection", (socket) => {
         }
     })
 })
+
+connectToBalancer();
 
 http.listen(port, () => log("Server listening on port: " + port));

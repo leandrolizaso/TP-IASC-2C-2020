@@ -1,0 +1,13 @@
+{
+  "name": "node-pigeon-load-balancer",
+  "version": "1.0.0",
+  "main": "balancer.js",
+  "author": "iasc-grupo-1",
+  "license": "MIT",
+  "dependencies": {
+    "chalk": "^4.1.0",
+    "serverline": "^1.5.0",
+    "socket.io": "^2.3.0",
+    "socket.io-client": "^2.3.1"
+  }
+}

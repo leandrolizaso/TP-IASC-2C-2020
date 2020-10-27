@@ -1,10 +1,11 @@
-const serverURL = "http://localhost:3000";
+var serverURL = "";
+const balancerURL = "http://localhost:4000";
 const socketIO = require("socket.io-client");
 const chalk = require("chalk");  
 const lineReader = require("serverline")
 const connection = {socket: null, username: null, room: null};
 const currentMessages = [];
- 
+
 lineReader.init()
 lineReader.setCompletion(["/help", "/login", "/chat", "/join", "/secure", "/makeAdmin", "/removeAdmin", "/kick", "/edit", "/delete", "/chats", "/leave", "/logoff"])
 lineReader.setPrompt(getPrompt());
@@ -23,9 +24,12 @@ function getWords(str) {
 }
 
 function connectToServer(username) {
-  return socketIO(serverURL, {
-    query: { username: username }
-  })
+  var opts = { 	
+
+       query: { username: username }
+   }
+
+  return socketIO(serverURL, opts)
 }
 
 function send(event, data) {
@@ -325,6 +329,19 @@ lineReader.on("SIGINT", function(rl) {
 function addSocketEvent(eventName, callback) {
   connection.socket.on(eventName, callback);
 }
+
+connection.socketBalancer = socketIO(balancerURL, {});	
+
+connection.socketBalancer.on("nodo", (data) => {
+	if(data == ''){
+	  console.log('Unavailable server');
+	  connection.socketBalancer.emit("reconnect-server");
+	  //poner un timeout
+	}else{
+	  serverURL = "http://localhost:" + data;
+	}
+	
+});
 
 function addConnectionEvents() {
   addSocketEvent("authorization", (alreadyLogged) => {
