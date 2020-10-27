@@ -43,10 +43,14 @@ function login(username) {
 }
 
 function joinChat(id) {
+  if (connectedToRoom())
+    leaveChat();
   send("join-chat", id);
 }
 
 function createGroup() {
+  if (connectedToRoom())
+    leaveChat();
   send("create-group");
 }
 
@@ -59,6 +63,8 @@ function addUserToGroup(username) {
 }
 
 function chatWith(username) {
+  if (connectedToRoom())
+    leaveChat();
   send("chat-with", username);
 }
 
@@ -214,7 +220,7 @@ lineReader.on("line", function(line) {
       console.log(chalk.yellow("/join [id]") + ": joins a chat by its identifier");
       console.log(chalk.yellow("/secure [s] [message]") + ": sends a message that will last "+chalk.yellowBright("s")+" seconds");
       console.log(chalk.yellow("/group") + ": creates and joins to a new group");
-      console.log(chalk.yellow("/add") + ": add user to group");
+      console.log(chalk.yellow("/add [username]") + ": add user to group");
       console.log(chalk.yellow("/makeAdmin [username]") + ": gives admin status to an user");
       console.log(chalk.yellow("/removeAdmin [username]") + ": revokes user's admin status");
       console.log(chalk.yellow("/kick [username]") + ": removes user from group");
@@ -399,8 +405,6 @@ function addChatEvents() {
 
   addSocketEvent("chat-with", (chatID) => {
     if (chatID) {
-      if (connectedToRoom())
-        leaveChat();
       connection.room = chatID;
       console.log(chalk.yellow("Joined to chat #" + chatID));
       clearMessages();
@@ -410,8 +414,6 @@ function addChatEvents() {
 
   addSocketEvent("join-chat", (result) => {
     if (result.available) {
-      if (connectedToRoom())
-        leaveChat();
       console.log(chalk.yellow("Joined to chat #" + result.id));
       connection.room = result.id;
       clearMessages();
@@ -421,8 +423,6 @@ function addChatEvents() {
   })
 
   addSocketEvent("create-group", (chatID) => {
-    if (connectedToRoom())
-      leaveChat();
     console.log(chalk.yellow("Joined to group chat #" + chatID));
     connection.room = chatID;
     clearMessages();
