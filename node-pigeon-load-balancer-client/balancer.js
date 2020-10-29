@@ -1,10 +1,11 @@
 
 const http = require("http").createServer();
 const io = require("socket.io")(http);
-const port = 4001;
+const socketIO = require("socket.io-client");
+const balancerURL = "http://localhost:4001";
+const port = 4002;
+var balancer = {};
 const log = console.log;
-
-var balancerSocket = '';
 
 var nodos = new Map();
 
@@ -22,6 +23,31 @@ Array.prototype.random = function(){
   return this[Math.floor(Math.random()*this.length)];
 }
 
+balancer = socketIO(balancerURL, {
+     query: { nodos: JSON.stringify((nodos)), type: 'balancer'}
+ });
+
+
+ balancer.on('added-nodo', (data) => {
+   console.log(data);
+    if(!nodos.has(data.socketId)){
+      nodos.set(data.socketId, data.url)
+    }
+})
+
+balancer.on('deleted-nodo', (data) => {
+  if(nodos.has(data.socketId)){
+    nodos.delete(data.socketId);
+    console.log('deleted', data.socketId)
+  }
+})
+
+
+balancer.on('initial-nodes', (data) => {
+  //agrego los nodos que no tengo
+})
+
+
 io.on("connection", (socket) => {
 
     console.log(socket.handshake);
@@ -30,44 +56,17 @@ io.on("connection", (socket) => {
     	const nodoUrl = socket.handshake.query.url;
     	nodos.set(socket.id, nodoUrl);
       //chequear que haya otro balancer
-      balancerSocket.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
-
-    }else if(socket.handshake.query.type == 'balancer'){
-     const newNodos = socket.handshake.query.nodos;
-     balancerSocket = socket;
-     //agrego los nodos que me faltan
-//      newNodos.forEach((item) => {
-//       console.log(item)
-//     });
-
-     socket.emit('initial-nodes',nodos);
-    }
-    else{
+      balancer.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
+    }else {
     	socket.emit('nodo', selectNodo());
     }
-
-    socket.on('added-nodo', (data) => {
-      if(!nodos.has(data.socketId)){
-        nodos.set(data.socketId, data.url)
-      }
-    })
-
-    socket.on('deleted-nodo', (data) => {
-      if(nodos.has(data.socketId)){
-        nodos.delete(data.socketId, data.url)
-      }
-    })
 
     socket.on("reconnect-server", () => {
       socket.emit('nodo', selectNodo());
     })
 
     socket.on("disconnect", () => {
-      if(nodos.has(socket.id)){
-        nodos.delete(socket.id);
-        balancerSocket.emit('deleted-nodo', {socketId: socket.id});
-      }
-
+      nodos.delete(socket.id);
     })
 })
 

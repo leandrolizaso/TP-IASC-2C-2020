@@ -1,7 +1,7 @@
 var serverURL = "";
 const balancerURL = "http://localhost:4000";
 const socketIO = require("socket.io-client");
-const chalk = require("chalk");  
+const chalk = require("chalk");
 const lineReader = require("serverline")
 const connection = {socket: null, username: null, room: null};
 const currentMessages = [];
@@ -24,7 +24,7 @@ function getWords(str) {
 }
 
 function connectToServer(username) {
-  var opts = { 	
+  var opts = {
 
        query: { username: username }
    }
@@ -321,7 +321,7 @@ lineReader.on("line", function(line) {
       console.log(chalk.red("Unknown command. Please type /help for more information."));
   }
 })
- 
+
 lineReader.on("SIGINT", function(rl) {
   rl.question("Do you really want to quit? (y/n): ", (answer) => {
     if (answer.match(/^y(es)?$/i)) {
@@ -336,7 +336,7 @@ function addSocketEvent(eventName, callback) {
   connection.socket.on(eventName, callback);
 }
 
-connection.socketBalancer = socketIO(balancerURL, {});	
+connection.socketBalancer = socketIO(balancerURL, {});
 
 connection.socketBalancer.on("nodo", (data) => {
 	if(data == ''){
@@ -346,7 +346,7 @@ connection.socketBalancer.on("nodo", (data) => {
 	}else{
 	  serverURL = "http://localhost:" + data;
 	}
-	
+
 });
 
 function addConnectionEvents() {
@@ -437,8 +437,8 @@ function addChatEvents() {
           console.log(chalk.yellow(chat.id + " - " + "Chat group - " + chat.users.length + " members"));
         else if (chat.users.length > 1)
           console.log(chalk.yellow(chat.id + " - " + "Chat between " + chat.users[0] + " & " + chat.users[1]));
-        else 
-          console.log(chalk.yellow(chat.id + " - " + "Personal chat"));        
+        else
+          console.log(chalk.yellow(chat.id + " - " + "Personal chat"));
       })
   })
 
@@ -448,7 +448,7 @@ function addChatEvents() {
     else
       console.log(chalk.red("Couldn't invite user. No permission/user inactive/user already in group"));
   });
-  
+
   addSocketEvent("remove-from-group", (canRemove) => {
     if (canRemove)
       console.log(chalk.green("User was removed from the group successfully!"));
@@ -479,7 +479,7 @@ function addChatEvents() {
   addSocketEvent("chat-group-remove", (remove) => {
     const username = remove.username;
     const chatID = remove.id;
-    console.log(chalk.red(username + " has removed you from group #" + chatID)); 
+    console.log(chalk.red(username + " has removed you from group #" + chatID));
     if (connection.room === chatID)
       leaveChat();
   })
@@ -500,5 +500,3 @@ function addChatEvents() {
     })
   })
 }
-
-  
