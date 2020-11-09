@@ -1,5 +1,6 @@
 var serverURL = "";
-const balancerURL = "http://localhost:4000";
+const balancerURL = "http://localhost:4001";
+const balancerURLBackup = "http://localhost:4002";
 const socketIO = require("socket.io-client");
 const chalk = require("chalk");
 const lineReader = require("serverline")
@@ -338,13 +339,21 @@ function addSocketEvent(eventName, callback) {
 
 connection.socketBalancer = socketIO(balancerURL, {});
 
+connection.socketBalancer.on('connect_error', function (err) {
+    console.log('connecting to another server');
+    connection.socketBalancer.off();
+    connection.socketBalancer = socketIO(balancerURLBackup, {});
+});
+
 connection.socketBalancer.on("nodo", (data) => {
+  console.log('llego nodo')
 	if(data == ''){
 	  console.log('Unavailable server');
 	  connection.socketBalancer.emit("reconnect-server");
 	  //poner un timeout
 	}else{
 	  serverURL = "http://localhost:" + data;
+    console.log(serverURL);
 	}
 
 });

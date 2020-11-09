@@ -58,7 +58,9 @@ io.on("connection", (socket) => {
       //chequear que haya otro balancer
       balancer.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
     }else {
-    	socket.emit('nodo', selectNodo());
+      let nod  = selectNodo()
+      console.log('reconnecting', nod);
+    	socket.emit('nodo', nod);
     }
 
     socket.on("reconnect-server", () => {
