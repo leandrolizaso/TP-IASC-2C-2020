@@ -10,7 +10,6 @@ const currentMessages = [];
 lineReader.init()
 lineReader.setCompletion(["/help", "/login", "/chat", "/join", "/secure", "/makeAdmin", "/removeAdmin", "/kick", "/edit", "/delete", "/chats", "/leave", "/logoff"])
 lineReader.setPrompt(getPrompt());
-welcome();
 
 function welcome() {
   console.log(chalk.green("Welcome to Pigeon client, type " + chalk.whiteBright("/help") + " to see available commands"));
@@ -348,12 +347,13 @@ connection.socketBalancer.on('connect_error', function (err) {
 connection.socketBalancer.on("nodo", (data) => {
   console.log('llego nodo')
 	if(data == ''){
-	  console.log('Unavailable server');
-	  connection.socketBalancer.emit("reconnect-server");
-	  //poner un timeout
-	}else{
-	  serverURL = "http://localhost:" + data;
-    console.log(serverURL);
+    console.log(chalk.red("Couldn't find active server. Retrying..."));
+    const oneSecond = 1000;
+	  setTimeout(() => connection.socketBalancer.emit("reconnect-server"), oneSecond);
+	} else {
+    serverURL = "http://localhost:" + data;
+    console.log(chalk.greenBright("Found a server! It's located at " + chalk.white(serverURL)));
+    welcome();
 	}
 
 });
