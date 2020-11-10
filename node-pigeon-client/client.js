@@ -1,10 +1,10 @@
 var serverURL = "";
-const balancerURL = "http://localhost:4001";
-const balancerURLBackup = "http://localhost:4002";
+let balancerURL = "http://localhost:4001";
+let balancerURLBackup = "http://localhost:4002";
 const socketIO = require("socket.io-client");
 const chalk = require("chalk");
 const lineReader = require("serverline")
-const connection = {socket: null, username: null, room: null};
+const connection = {socket: null, socketBalancer: null, reconnectServer: false, reconnectBalancer: false,username: null, room: null};
 const currentMessages = [];
 
 lineReader.init()
@@ -337,26 +337,48 @@ function addSocketEvent(eventName, callback) {
 }
 
 connection.socketBalancer = socketIO(balancerURL, {});
+assingEvents(connection.socketBalancer);
 
-connection.socketBalancer.on('connect_error', function (err) {
-    console.log('connecting to another server');
-    connection.socketBalancer.off();
-    connection.socketBalancer = socketIO(balancerURLBackup, {});
-});
+function assingEvents(socket){
+  socket.on("nodo", (data) => {
+    if(connection.socket != null) connection.socket.disconnect();
+    console.log('llego nodo')
+  	if(data == ''){
+      console.log(chalk.red("Couldn't find active server. Retrying..."));
+    //  if(!connection.reconnectServer){
+  //      connection.reconnectServer = true;
+        setTimeout(() => {
+          socket.emit("reconnect-server");
+    //      connection.reconnectServer = false;
+        }, 1500);
+    //  }
 
-connection.socketBalancer.on("nodo", (data) => {
-  console.log('llego nodo')
-	if(data == ''){
-    console.log(chalk.red("Couldn't find active server. Retrying..."));
-    const oneSecond = 1000;
-	  setTimeout(() => connection.socketBalancer.emit("reconnect-server"), oneSecond);
-	} else {
-    serverURL = "http://localhost:" + data;
-    console.log(chalk.greenBright("Found a server! It's located at " + chalk.white(serverURL)));
-    welcome();
-	}
+  	} else {
+      serverURL = "http://localhost:" + data;
+      if(connection.username != undefined){
+        connection.socket = connectToServer(connection.username);
+      }
+      console.log(chalk.greenBright("Found a server! It's located at " + chalk.white(serverURL)));
+      welcome();
+  	}
 
-});
+  });
+
+  socket.on('connect_error', function (err) {
+      console.log('connecting to another server');
+      //if(connection.reconnectBalancer){return;}
+      socket.disconnect();
+      setTimeout(() => {
+        socket = connection.socketBalancer = socketIO(balancerURLBackup, {});
+        let server = balancerURL;
+        balancerURL = balancerURLBackup;
+        balancerURLBackup = server;
+        assingEvents(socket);
+      //  connection.reconnectBalancer = false;
+      }, 1500);
+
+  });
+}
 
 function addConnectionEvents() {
   addSocketEvent("authorization", (alreadyLogged) => {
@@ -371,8 +393,11 @@ function addConnectionEvents() {
   })
 
   addSocketEvent("reconnecting", (reason) => {
-    if (reason !== "io client disconnect")
+    if (reason !== "io client disconnect"){
+      const oneSecond = 1000;
+      setTimeout(() => connection.socketBalancer.emit("reconnect-server"), oneSecond);
       console.log(chalk.red("Network error. Retrying connection..."));
+    }
   })
 
   addSocketEvent("reconnect", () => {

@@ -8,8 +8,8 @@ const socketIO = require("socket.io-client");
 
 const chats = new Map();
 // {key: 4 character nanoid, value: {
-//                                      messages: Map{key: timestamp, value: {message, username}}, 
-//                                      users: Map{key: username, value: isAdmin}, 
+//                                      messages: Map{key: timestamp, value: {message, username}},
+//                                      users: Map{key: username, value: isAdmin},
 //                                      isGroup: Boolean}
 //                                  }
 
@@ -17,8 +17,8 @@ const users = new Map();
 // {key: username, value: socket id}
 
 function connectToBalancer() {
-  var opts = { 	
-
+  var opts = {
+       reconnection: false,
        query: { type: 'nodo', url: port }
    }
 
@@ -104,7 +104,7 @@ function addUserToChat(username, chatID) {
 function notifyUser(motive, username, otherUsername, chatID, data) {
     const socketID = users.get(otherUsername);
     io.to(socketID).emit(motive, {
-        username: username, 
+        username: username,
         id: chatID,
         data: data
     });
@@ -216,7 +216,7 @@ function deleteMessage(envelope) {
 }
 
 io.on("connection", (socket) => {
-    
+
     console.log(socket.handshake);
 
     const username = socket.handshake.query.username;
@@ -298,7 +298,7 @@ io.on("connection", (socket) => {
         const otherUsername = groupInvite.username;
         log(username + " wants to invite to group " + otherUsername);
         const canInvite = isUserConnected(otherUsername) && isGroupAdmin(chatID, username) && !isChatMember(chatID, otherUsername);
-        if (canInvite) 
+        if (canInvite)
             inviteUserToGroupChat(username, otherUsername, chatID);
         socket.emit("invite-to-group", canInvite);
     })
@@ -308,7 +308,7 @@ io.on("connection", (socket) => {
         const otherUsername = groupRemove.username;
         log(username + " wants to remove from group " + otherUsername);
         const canRemove = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username);
-        if (canRemove) 
+        if (canRemove)
             removeUserFromGroupChat(username, otherUsername, chatID);
         socket.emit("remove-from-group", canRemove);
     })
@@ -319,12 +319,12 @@ io.on("connection", (socket) => {
         const chatID = permission.chatID;
         log(username + " wants to set privilege to " + otherUsername);
         const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
-        if (canSetPrivilege) 
+        if (canSetPrivilege)
             setPrivilege(adminStatus, otherUsername, username, chatID);
         socket.emit("privilege", canSetPrivilege);
     })
 
-    socket.on("join-chat", (id) => { 
+    socket.on("join-chat", (id) => {
         log(username + " wants to join chat " + id);
         const availableChat = canJoinChat(username, id);
 
@@ -339,12 +339,12 @@ io.on("connection", (socket) => {
         }
     })
 
-    socket.on("query-chats", () => { 
+    socket.on("query-chats", () => {
         log(username + " wants to know his chats ");
         socket.emit("query-chats", getUserChats(username));
     })
 
-    socket.on("leave-chat", (id) => { 
+    socket.on("leave-chat", (id) => {
         log(username + " wants to leave chat " + id);
         socket.leave(id);
     })

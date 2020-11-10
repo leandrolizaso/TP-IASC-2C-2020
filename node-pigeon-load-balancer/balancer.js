@@ -29,8 +29,9 @@ io.on("connection", (socket) => {
     if(socket.handshake.query.type == 'nodo'){
     	const nodoUrl = socket.handshake.query.url;
     	nodos.set(socket.id, nodoUrl);
-      //chequear que haya otro balancer
-      balancerSocket.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
+      if(balancerSocket != ''){
+        balancerSocket.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
+      }
 
     }else if(socket.handshake.query.type == 'balancer'){
      const newNodos = socket.handshake.query.nodos;
@@ -40,7 +41,7 @@ io.on("connection", (socket) => {
 //       console.log(item)
 //     });
 
-     socket.emit('initial-nodes',nodos);
+     socket.emit('initial-nodes',[...nodos]);
     }
     else{
     	socket.emit('nodo', selectNodo());

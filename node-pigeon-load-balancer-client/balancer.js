@@ -4,7 +4,7 @@ const io = require("socket.io")(http);
 const socketIO = require("socket.io-client");
 const balancerURL = "http://localhost:4001";
 const port = 4002;
-var balancer = {};
+var balancer = '';
 const log = console.log;
 
 var nodos = new Map();
@@ -44,6 +44,12 @@ balancer.on('deleted-nodo', (data) => {
 
 
 balancer.on('initial-nodes', (data) => {
+  [... data].forEach(([k,v]) => {
+    if(!nodos.has(k)){
+      nodos.set(k,v);
+    }
+  })
+  console.log(nodos);
   //agrego los nodos que no tengo
 })
 
@@ -55,8 +61,9 @@ io.on("connection", (socket) => {
     if(socket.handshake.query.type == 'nodo'){
     	const nodoUrl = socket.handshake.query.url;
     	nodos.set(socket.id, nodoUrl);
-      //chequear que haya otro balancer
-      balancer.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
+      if(balancer != ''){
+        balancer.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
+      }
     }else {
       let nod  = selectNodo()
       console.log('reconnecting', nod);
