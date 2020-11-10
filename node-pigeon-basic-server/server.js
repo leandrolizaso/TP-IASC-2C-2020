@@ -1,10 +1,16 @@
 const http = require("http").createServer();
+const redis = require('socket.io-redis');
 const io = require("socket.io")(http);
 const { nanoid } = require("nanoid");
 const args = process.argv;
 const port = args[2];
 const log = console.log;
 const socketIO = require("socket.io-client");
+io.adapter(redis({
+    host: "127.0.0.1",
+    port: 6379
+}));
+
 
 const chats = new Map();
 // {key: 4 character nanoid, value: {
@@ -15,6 +21,17 @@ const chats = new Map();
 
 const users = new Map();
 // {key: username, value: socket id}
+
+const reqType = {
+    USEREXISTS: 0,
+}
+
+io.of('/').adapter.customHook = (data, callback) => {
+    switch (data.type) {
+        case reqType.USEREXISTS: callback(users.get(data.username)); break;
+        default: callback(null);
+    }
+}
 
 function connectToBalancer() {
   var opts = { 	
@@ -37,20 +54,53 @@ function registerUser(username, id) {
     users.set(username, id);
 }
 
+function requestNodes(data) {
+    return new Promise((resolve, reject) => {
+        io.of('/').adapter.customRequest(data, (err, responses) => {
+        if (err) 
+            reject(err);
+        else 
+            resolve(responses);
+        });
+    });
+}
+
 function isUserConnected(username) {
-    return users.has(username);
+    //return users.has(username);
+    return new Promise((resolve, reject) => {
+        if (users.has(username))
+            resolve(true);
+        else {
+            const data = {
+                type: reqType.USEREXISTS,
+                username: username
+            }
+            requestNodes(data).then(responses => {
+                //If an ID has been returned, it means user exists somewhere else
+                resolve(responses.some(id => id));
+            }).catch((reason) => {
+                reject(reason);
+            })
+
+        }
+    });
 }
 
 function authorizeUser(username, socket) {
-    const connected = isUserConnected(username)
-    if (connected) {
-        log(username + " was already connected");
-    } else {
-        log(username + " connected");
-        registerUser(username, socket.id);
-    }
-    socket.authorized = !connected;
-    socket.emit("authorization", connected);
+    isUserConnected(username).then((connected) => {
+        if (!connected) {
+            log(username + " connected");
+            registerUser(username, socket.id);
+            socket.authorized = true;
+            socket.emit("authorization", true);
+        } else {
+            log(username + " was already connected");
+            socket.emit("authorization", false);
+        }
+    }).catch((reason) => {
+        log(reason);
+        socket.emit("authorization", false);
+    });
 }
 
 function isChatMember(chatID, username) {

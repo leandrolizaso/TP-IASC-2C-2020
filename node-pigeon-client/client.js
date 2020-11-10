@@ -351,13 +351,13 @@ connection.socketBalancer.on("nodo", (data) => {
 });
 
 function addConnectionEvents() {
-  addSocketEvent("authorization", (alreadyLogged) => {
-    if (!alreadyLogged) {
+  addSocketEvent("authorization", (authorized) => {
+    if (authorized) {
       console.log(chalk.green("Login success"));
       username = connection.socket.io.opts.query.username;
       addChatEvents();
     } else {
-      console.log(chalk.red("User is already logged in!"));
+      console.log(chalk.red("Couldn't login!"));
       setToDefaultConnection();
     }
   })
