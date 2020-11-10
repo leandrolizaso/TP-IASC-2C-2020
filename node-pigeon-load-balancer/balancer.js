@@ -66,7 +66,8 @@ io.on("connection", (socket) => {
     socket.on("disconnect", () => {
       if(nodos.has(socket.id)){
         nodos.delete(socket.id);
-        balancerSocket.emit('deleted-nodo', {socketId: socket.id});
+        if (balancerSocket)
+          balancerSocket.emit('deleted-nodo', {socketId: socket.id});
       }
 
     })

@@ -22,7 +22,7 @@ function connectToBalancer() {
        query: { type: 'nodo', url: port }
    }
 
-  return socketIO('http://localhost:4000', opts)
+  return socketIO('http://localhost:4001', opts)
 }
 
 function generateID() {
@@ -50,7 +50,12 @@ function authorizeUser(username, socket) {
         registerUser(username, socket.id);
     }
     socket.authorized = !connected;
-    socket.emit("authorization", connected);
+    const authorization = {
+        alreadyLogged: connected,
+        username: username
+    }
+    socket.emit("authorization", authorization);
+    return connected;
 }
 
 function isChatMember(chatID, username) {
@@ -218,10 +223,13 @@ function deleteMessage(envelope) {
 io.on("connection", (socket) => {
 
     console.log(socket.handshake);
+    let username;
 
-    const username = socket.handshake.query.username;
-
-    authorizeUser(username, socket);
+    socket.on("login", (username2) => {
+        const alreadyLogged = authorizeUser(username2, socket);
+        if (!alreadyLogged)
+            username = username2;
+    })
 
     socket.on("message", (data) => {
         log(data);
@@ -347,6 +355,17 @@ io.on("connection", (socket) => {
     socket.on("leave-chat", (id) => {
         log(username + " wants to leave chat " + id);
         socket.leave(id);
+    })
+
+    socket.on("logoff", () => {
+        if (socket.authorized) {
+            users.delete(username);
+            Object.values(socket.rooms).forEach(room => {
+                if (room !== socket.id)
+                    socket.leave(room)
+            });
+            log(username + " logged off");
+        }
     })
 
     socket.on("disconnect", () => {

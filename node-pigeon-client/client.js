@@ -37,9 +37,14 @@ function send(event, data) {
 }
 
 function login(username) {
-  connection.socket = connectToServer(username);
-  connection.username = username;
-  addConnectionEvents();
+  send("login", username);
+}
+
+function logOff() {
+  send("logoff");
+  connection.room = null;
+  connection.username = null;
+  console.log(chalk.magenta("Logged off!"));
 }
 
 function joinChat(id) {
@@ -96,14 +101,12 @@ function leaveChat() {
 }
 
 function setToDefaultConnection() {
-  connection.socket.disconnect();
+  if (connection.socket) {
+    connection.socket.disconnect();
+    connection.socket = null;
+  }
   connection.username = null;
   connection.room = null;
-}
-
-function disconnect() {
-  setToDefaultConnection();
-  console.log(chalk.magenta("Logged off!"));
 }
 
 function loggedIn() {
@@ -313,7 +316,7 @@ lineReader.on("line", function(line) {
       break;
     case "/logoff":
       if (loggedIn())
-        disconnect();
+        logOff();
       else
         console.log(chalk.red("You must be logged in."))
       break;
@@ -355,9 +358,10 @@ function assingEvents(socket){
 
   	} else {
       serverURL = "http://localhost:" + data;
-      if(connection.username != undefined){
-        connection.socket = connectToServer(connection.username);
-      }
+      setToDefaultConnection();
+      connection.socket = connectToServer();
+      addConnectionEvents();
+      addChatEvents();
       console.log(chalk.greenBright("Found a server! It's located at " + chalk.white(serverURL)));
       welcome();
   	}
@@ -381,14 +385,12 @@ function assingEvents(socket){
 }
 
 function addConnectionEvents() {
-  addSocketEvent("authorization", (alreadyLogged) => {
-    if (!alreadyLogged) {
+  addSocketEvent("authorization", (authorization) => {
+    if (!authorization.alreadyLogged) {
       console.log(chalk.green("Login success"));
-      username = connection.socket.io.opts.query.username;
-      addChatEvents();
+      connection.username = authorization.username;
     } else {
       console.log(chalk.red("User is already logged in!"));
-      setToDefaultConnection();
     }
   })
 
@@ -400,9 +402,7 @@ function addConnectionEvents() {
     }
   })
 
-  addSocketEvent("reconnect", () => {
-    connection.socket.off();
-    addConnectionEvents();
+  addSocketEvent("connect", () => {
     if (connection.room) {
       joinChat(connection.room);
       connection.room = null;
