@@ -1,10 +1,16 @@
 const http = require("http").createServer();
+const redis = require('socket.io-redis');
 const io = require("socket.io")(http);
 const { nanoid } = require("nanoid");
 const args = process.argv;
 const port = args[2];
 const log = console.log;
 const socketIO = require("socket.io-client");
+io.adapter(redis({
+    host: "127.0.0.1",
+    port: 6379
+}));
+
 let balancerURL = "http://localhost:4001";
 let balancerURLBackup = "http://localhost:4002";
 
@@ -18,6 +24,10 @@ const chats = new Map();
 const users = new Map();
 // {key: username, value: socket id}
 
+/*  ******************
+    Auxiliar functions
+    ******************  */
+
 function generateID() {
     return nanoid(4);
 }
@@ -26,29 +36,12 @@ function getMapKeys(map) {
     return [... map.keys()];
 }
 
+/*  ********************************************
+    Node state management and querying functions
+    ********************************************  */
+
 function registerUser(username, id) {
     users.set(username, id);
-}
-
-function isUserConnected(username) {
-    return users.has(username);
-}
-
-function authorizeUser(username, socket) {
-    const connected = isUserConnected(username)
-    if (connected) {
-        log(username + " was already connected");
-    } else {
-        log(username + " connected");
-        registerUser(username, socket.id);
-    }
-    socket.authorized = !connected;
-    const authorization = {
-        alreadyLogged: connected,
-        username: username
-    }
-    socket.emit("authorization", authorization);
-    return connected;
 }
 
 function isChatMember(chatID, username) {
@@ -108,10 +101,6 @@ function notifyUser(motive, username, otherUsername, chatID, data) {
     });
 }
 
-function inviteUserToChat(username, otherUsername, chatID) {
-    notifyUser("chat-invite", username, otherUsername, chatID);
-}
-
 function inviteUserToGroupChat(username, otherUsername, chatID) {
     addUserToChat(otherUsername, chatID);
     notifyUser("chat-group-invite", username, otherUsername, chatID);
@@ -131,19 +120,14 @@ function isEmpty(collection) {
 }
 
 function getEnvelopes(messages) {
-    const timestamps = getMapKeys(messages);
-    return timestamps.map(timestamp => {
-        const envelope = Object.assign({}, messages.get(timestamp));
-        envelope.timestamp = timestamp;
+    return messages.map(([timestamp, data]) => {
+        const envelope = {
+            timestamp: timestamp,
+            username: data.username,
+            message: data.message
+        }
         return envelope;
     })
-}
-
-function sendChatMessages(username, chatID) {
-    const socketID = users.get(username);
-    const chat = chats.get(chatID);
-    if (!isEmpty(chat.messages))
-        io.to(socketID).emit("messages", getEnvelopes(chat.messages));
 }
 
 function saveMessage(room, envelope) {
@@ -174,14 +158,14 @@ function isGroupAdmin(chatID, username) {
 function removeUserFromGroupChat(username, otherUsername, chatID) {
     const chat = chats.get(chatID);
     chat.users.delete(otherUsername);
-    if (isUserConnected(otherUsername))
+    if (askForUserConnected(otherUsername))
         notifyUser("chat-group-remove", username, otherUsername, chatID);
 }
 
 function setPrivilege(adminStatus, otherUsername, username, chatID) {
     const chat = chats.get(chatID);
     chat.users.set(otherUsername, adminStatus);
-    if (isUserConnected(otherUsername))
+    if (askForUserConnected(otherUsername))
         notifyUser("chat-group-privilege", username, otherUsername, chatID, {admin: adminStatus});
 }
 
@@ -213,15 +197,287 @@ function deleteMessage(envelope) {
     return chat.messages.delete(envelope.timestamp);
 }
 
+function isUserConnected(username) {
+    return users.has(username);
+}
+
+function getChatMessages(chatID) {
+    const chat = chats.get(chatID);
+    if (chat) {
+        let envelopes = getEnvelopes([ ...chat.messages]);
+        return envelopes;
+    }
+    return null;
+}
+
+function sendUserInvitation(username, otherUsername, chatID) {
+    let success = false;
+    if (isUserConnected(otherUsername)) {
+        notifyUser("chat-invite", username, otherUsername, chatID);
+        success = true;
+    }
+    return success;
+}
+
+function isChatHere(chatID) {
+    return chats.has(chatID);
+}
+
+function registerMessage(chatID, envelope) {
+    io.to(chatID).emit("message", envelope);
+    saveMessage(chatID, envelope);
+}
+
+function treatMessage(chatID, envelope) {
+    let success = false
+    if (isChatHere(chatID)) {
+        registerMessage(chatID, envelope);
+        success = true;
+    }
+    return success;
+}
+
+/*  **********************************************  
+    Functionality to request data from other nodes
+    **********************************************  */  
+
+const reqType = {
+    USEREXISTS: 0,
+    PRIVATECHAT: 1,
+    CHATMESSAGES: 2,
+    INVITEUSER: 3,
+    MESSAGE: 4
+}
+
+//customHook will handle and reply to any customRequest from other nodes
+io.of('/').adapter.customHook = (data, callback) => {
+    switch (data.type) {
+        case reqType.USEREXISTS: callback(isUserConnected(data.username)); break;
+        case reqType.PRIVATECHAT: callback(getPrivateChat(data.username, data.otherUsername)); break;
+        case reqType.CHATMESSAGES: callback(getChatMessages(data.chatID));
+        case reqType.INVITEUSER: callback(sendUserInvitation(data.username, data.otherUsername, data.chatID)); break;
+        case reqType.MESSAGE: callback(treatMessage(data.chatID, data.envelope)); break;
+        default: callback(null);
+    }
+}
+
+// data: {
+//    type: reqType.AnyRequest,
+//    field1: ...,
+//    field2: ...,
+//    ...
+// }
+
+function requestNodes(data) {
+    return new Promise((resolve, reject) => {
+        io.of('/').adapter.customRequest(data, (err, responses) => {
+        if (err) 
+            reject(err);
+        else 
+            resolve(responses);
+        });
+    });
+}
+
+function getFirstValidResponse(responses) {
+    log(responses)
+    return responses.find(elem => elem);
+}
+
+function askForUserConnected(username) {
+    return new Promise((resolve, reject) => {
+        if (isUserConnected(username))
+            resolve(true);
+        else {
+            const data = {
+                type: reqType.USEREXISTS,
+                username: username
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForPrivateChat(username, otherUsername) {
+    return new Promise((resolve, reject) => {
+        let chatID = getPrivateChat(username, otherUsername);
+        if (chatID)
+            resolve(chatID);
+        else {
+            const data = {
+                type: reqType.PRIVATECHAT,
+                username: username,
+                otherUsername: otherUsername
+            }
+            requestNodes(data).then(responses => {
+                chatID = getFirstValidResponse(responses);
+                resolve(chatID);
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForChatMessages(chatID) {
+    return new Promise((resolve, reject) => {
+        let messages = getChatMessages(chatID);
+        if (messages)
+            resolve(messages);
+        else {
+            const data = {
+                type: reqType.CHATMESSAGES,
+                chatID: chatID
+            }
+            requestNodes(data).then(responses => {
+                messages = getFirstValidResponse(responses);
+                resolve(messages);
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForUserInvitation(username, otherUsername, chatID) {
+    return new Promise((resolve, reject) => {
+        if (isUserConnected(otherUsername)) {
+            notifyUser("chat-invite", username, otherUsername, chatID);
+            resolve(true);
+        } else {
+            const data = {
+                type: reqType.INVITEUSER,
+                username: username,
+                otherUsername: otherUsername,
+                chatID: chatID
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForMessageTreatment(chatID, envelope) {
+    return new Promise((resolve, reject) => {
+        if (isChatHere(chatID)) {
+            registerMessage(chatID, envelope);
+            resolve(true);
+        } else {
+            const data = {
+                type: reqType.MESSAGE,
+                chatID: chatID,
+                envelope: envelope
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+/*  **************************
+    Event management functions
+    **************************  */
+
+function authorizeUser(socket, username) {
+    const authorization = {
+        username: username,
+        authorized: false
+    }
+    askForUserConnected(username).then((connected) => {
+        if (!connected) {
+            log(username + " connected");
+            registerUser(username, socket.id);
+            socket.username = username;
+            socket.authorized = authorization.authorized = true;
+        } else {
+            log(username + " was already connected");
+        }
+        socket.emit("authorization", authorization);
+    }).catch((reason) => {
+        log(reason);
+        socket.emit("authorization", authorization);
+    });
+}
+
+function managePrivateChat(socket, otherUsername) {
+    const username = socket.username;
+    askForUserConnected(otherUsername).then((connected) => {
+        if (!connected) {
+            log(otherUsername + " wasn't found anywhere");
+            socket.emit("chat-with", null);
+        } else {
+            askForPrivateChat(username, otherUsername).then((chatID) => {
+                if (!chatID)
+                    chatID = createPrivateChat([username, otherUsername]);
+                socket.join(chatID);
+                socket.emit("chat-with", chatID);
+                sendChatMessages(username, chatID);
+                inviteUserToChat(username, otherUsername, chatID);
+            }).catch(reason => {
+                log(reason);
+                socket.emit("chat-with", null);
+            })
+        }
+    }).catch((reason) => {
+        log(reason);
+        socket.emit("chat-with", null);
+    });
+}
+
+function manageMessage(chatID, envelope) {
+    askForMessageTreatment(chatID, envelope).then((success) => {
+        if (success)
+            log("Message " + envelope.timestamp + " saved");
+        else
+            log("Message " + envelope.timestamp + " couldn't be saved");
+    }).catch((reason) => {
+        log(reason);
+    });
+}
+
+/*  ********************************
+    Functions for chat interactivity
+    ********************************  */
+
+function sendChatMessages(username, chatID) {
+    const socketID = users.get(username);
+    askForChatMessages(chatID).then(messages => {
+        if (messages)
+            io.to(socketID).emit("messages", messages);
+    }).catch(reason => {
+        log(reason);
+    })
+}
+
+function inviteUserToChat(username, otherUsername, chatID) {
+    askForUserInvitation(username, otherUsername, chatID).then(success => {
+        if (success)
+            log(username + " invited " + otherUsername + " to " + chatID);
+        else
+            log(username + " wanted to invite " + otherUsername + " to " + chatID + " but failed");
+    }).catch(reason => {
+        log(reason);
+    })
+}
+
+/*  *********************************
+    Event listeners to attend clients
+    *********************************  */
+
 io.on("connection", (socket) => {
 
-    console.log(socket.handshake);
-    let username;
-
-    socket.on("login", (username2) => {
-        const alreadyLogged = authorizeUser(username2, socket);
-        if (!alreadyLogged)
-            username = username2;
+    socket.on("login", (username) => {
+        authorizeUser(socket, username);
     })
 
     socket.on("message", (data) => {
@@ -229,18 +485,18 @@ io.on("connection", (socket) => {
         const envelope = {
             timestamp: Date.now(),
             message: data.message,
-            username: username
+            username: socket.username
         }
-        io.to(data.room).emit("message", envelope);
-        saveMessage(data.room, envelope);
+        manageMessage(data.room, envelope)
     })
 
+    //ToDo PubSub adaptation
     socket.on("secure-message", (data) => {
         log(data);
         const envelope = {
             timestamp: Date.now(),
             message: data.message,
-            username: username,
+            username: socket.username,
             chatID: data.room
         }
         io.to(data.room).emit("message", envelope);
@@ -251,9 +507,10 @@ io.on("connection", (socket) => {
         }, data.timeout * 1000);
     })
 
+    //ToDo PubSub adaptation
     socket.on("edit-message", (envelope) => {
         log(username + " wants to edit message " + envelope.timestamp);
-        const canEdit = canEditMessage(username, envelope);
+        const canEdit = canEditMessage(socket.username, envelope);
         if (canEdit) {
             editMessage(envelope);
             socket.to(envelope.chatID).emit("edited-message", envelope);
@@ -261,9 +518,10 @@ io.on("connection", (socket) => {
         socket.emit("edit-message", canEdit);
     })
 
+    //ToDo PubSub adaptation
     socket.on("delete-message", (envelope) => {
-        log(username + " wants to delete message " + envelope.timestamp);
-        const canDelete = canEditMessage(username, envelope);
+        log(socket.username + " wants to delete message " + envelope.timestamp);
+        const canDelete = canEditMessage(socket.username, envelope);
         if (canDelete) {
             deleteMessage(envelope);
             socket.to(envelope.chatID).emit("deleted-message", envelope);
@@ -272,62 +530,56 @@ io.on("connection", (socket) => {
     })
 
     socket.on("chat-with", (otherUsername) => {
-        log(username + " wants to chat with " + otherUsername);
-        if (isUserConnected(otherUsername)) {
-            let chatID = getPrivateChat(username, otherUsername);
-            if (!chatID)
-                chatID = createPrivateChat([username, otherUsername]);
-            socket.join(chatID);
-            socket.emit("chat-with", chatID);
-            sendChatMessages(username, chatID);
-            if (!connectedToRoom(chatID, otherUsername)) {
-                inviteUserToChat(username, otherUsername, chatID);
-            }
-        } else
-            socket.emit("chat-with", null);
+        log(socket.username + " wants to chat with " + otherUsername);
+        managePrivateChat(socket, otherUsername);
     })
 
+    //ToDo PubSub adaptation
     socket.on("create-group", () => {
-        log(username + " wants to create a group");
-        let chatID = createGroupChat(username);
+        log(socket.username + " wants to create a group");
+        let chatID = createGroupChat(socket.username);
         socket.join(chatID);
         socket.emit("create-group", chatID);
     })
 
+    //ToDo PubSub adaptation
     socket.on("invite-to-group", (groupInvite) => {
         const chatID = groupInvite.chatID;
         const otherUsername = groupInvite.username;
-        log(username + " wants to invite to group " + otherUsername);
-        const canInvite = isUserConnected(otherUsername) && isGroupAdmin(chatID, username) && !isChatMember(chatID, otherUsername);
+        log(socket.username + " wants to invite to group " + otherUsername);
+        const canInvite = askForUserConnected(otherUsername) && isGroupAdmin(chatID, socket.username) && !isChatMember(chatID, otherUsername);
         if (canInvite)
-            inviteUserToGroupChat(username, otherUsername, chatID);
+            inviteUserToGroupChat(socket.username, otherUsername, chatID);
         socket.emit("invite-to-group", canInvite);
     })
 
+    //ToDo PubSub adaptation
     socket.on("remove-from-group", (groupRemove) => {
         const chatID = groupRemove.chatID;
         const otherUsername = groupRemove.username;
-        log(username + " wants to remove from group " + otherUsername);
-        const canRemove = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username);
+        log(socket.username + " wants to remove from group " + otherUsername);
+        const canRemove = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, socket.username);
         if (canRemove)
-            removeUserFromGroupChat(username, otherUsername, chatID);
+            removeUserFromGroupChat(socket.username, otherUsername, chatID);
         socket.emit("remove-from-group", canRemove);
     })
 
+    //ToDo PubSub adaptation
     socket.on("privilege", (permission) => {
         const otherUsername = permission.username;
         const adminStatus = permission.admin ;
         const chatID = permission.chatID;
-        log(username + " wants to set privilege to " + otherUsername);
-        const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
+        log(socket.username + " wants to set privilege to " + otherUsername);
+        const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, socket.username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
         if (canSetPrivilege)
-            setPrivilege(adminStatus, otherUsername, username, chatID);
+            setPrivilege(adminStatus, otherUsername, socket.username, chatID);
         socket.emit("privilege", canSetPrivilege);
     })
 
+    //ToDo PubSub adaptation
     socket.on("join-chat", (id) => {
-        log(username + " wants to join chat " + id);
-        const availableChat = canJoinChat(username, id);
+        log(socket.username + " wants to join chat " + id);
+        const availableChat = canJoinChat(socket.username, id);
 
         socket.emit("join-chat", {
             available: availableChat,
@@ -336,38 +588,43 @@ io.on("connection", (socket) => {
 
         if (availableChat)  {
             socket.join(id);
-            sendChatMessages(username, id);
+            sendChatMessages(socket.username, id);
         }
     })
 
+    //ToDo PubSub adaptation
     socket.on("query-chats", () => {
-        log(username + " wants to know his chats ");
-        socket.emit("query-chats", getUserChats(username));
+        log(socket.username + " wants to know his chats ");
+        socket.emit("query-chats", getUserChats(socket.username));
     })
 
     socket.on("leave-chat", (id) => {
-        log(username + " wants to leave chat " + id);
+        log(socket.username + " wants to leave chat " + id);
         socket.leave(id);
     })
 
     socket.on("logoff", () => {
         if (socket.authorized) {
-            users.delete(username);
+            users.delete(socket.username);
             Object.values(socket.rooms).forEach(room => {
                 if (room !== socket.id)
                     socket.leave(room)
             });
-            log(username + " logged off");
+            log(socket.username + " logged off");
         }
     })
 
     socket.on("disconnect", () => {
         if (socket.authorized) {
-            users.delete(username);
-            log(username + " disconnected");
+            users.delete(socket.username);
+            log(socket.username + " disconnected");
         }
     })
 })
+
+/*  ***********************
+    Connection to balancers
+    ***********************  */
 
 let connection;
 
@@ -395,7 +652,5 @@ function assingEvents(socket){
 
   });
 }
-
-
 
 http.listen(port, () => log("Server listening on port: " + port));

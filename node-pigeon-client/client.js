@@ -392,7 +392,7 @@ function assingEvents(socket){
 
 function addConnectionEvents() {
   addSocketEvent("authorization", (authorization) => {
-    if (!authorization.alreadyLogged) {
+    if (authorization.authorized) {
       console.log(chalk.green("Login success"));
       connection.username = authorization.username;
     } else {
