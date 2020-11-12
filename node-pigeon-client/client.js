@@ -4,7 +4,7 @@ let balancerURLBackup = "http://localhost:4002";
 const socketIO = require("socket.io-client");
 const chalk = require("chalk");
 const lineReader = require("serverline")
-const connection = {socket: null, socketBalancer: null, reconnectServer: false, reconnectBalancer: false,username: null, room: null};
+const connection = {socket: null, socketBalancer: null, username: null, room: null};
 const currentMessages = [];
 
 lineReader.init()
