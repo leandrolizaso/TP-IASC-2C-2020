@@ -5,6 +5,8 @@ const args = process.argv;
 const port = args[2];
 const log = console.log;
 const socketIO = require("socket.io-client");
+let balancerURL = "http://localhost:4001";
+let balancerURLBackup = "http://localhost:4002";
 
 const chats = new Map();
 // {key: 4 character nanoid, value: {
@@ -15,15 +17,6 @@ const chats = new Map();
 
 const users = new Map();
 // {key: username, value: socket id}
-
-function connectToBalancer() {
-  var opts = {
-       reconnection: false,
-       query: { type: 'nodo', url: port }
-   }
-
-  return socketIO('http://localhost:4001', opts)
-}
 
 function generateID() {
     return nanoid(4);
@@ -376,6 +369,33 @@ io.on("connection", (socket) => {
     })
 })
 
-connectToBalancer();
+let connection;
+
+let opts = {
+       reconnection: true,
+       query: { type: 'nodo', url: port }
+   }
+
+connection = socketIO(balancerURL, opts)
+
+assingEvents(connection);
+
+function assingEvents(socket){
+  socket.on('connect_error', function (err) {
+      console.log('connecting to another balancer');
+      socket.disconnect();
+      setTimeout(() => {
+        socket = connection = socketIO(balancerURLBackup, opts);
+        let server = balancerURL;
+        balancerURL = balancerURLBackup;
+        balancerURLBackup = server;
+        assingEvents(socket);
+      //  connection.reconnectBalancer = false;
+      }, 1500);
+
+  });
+}
+
+
 
 http.listen(port, () => log("Server listening on port: " + port));

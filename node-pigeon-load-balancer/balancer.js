@@ -22,26 +22,39 @@ Array.prototype.random = function(){
   return this[Math.floor(Math.random()*this.length)];
 }
 
+const addNodo = (id, nodoUrl) => {
+  nodoKey = getByValue(nodos, nodoUrl);
+  nodos.delete(nodoKey);
+  nodos.set(id, nodoUrl);
+  console.log(nodos);
+};
+
+function getByValue(map, searchValue) {
+  for (let [key, value] of map.entries()) {
+    if (value === searchValue)
+      return key;
+  }
+}
+
+
 io.on("connection", (socket) => {
 
     console.log(socket.handshake);
 
     if(socket.handshake.query.type == 'nodo'){
     	const nodoUrl = socket.handshake.query.url;
-    	nodos.set(socket.id, nodoUrl);
+    	addNodo(socket.id, nodoUrl);
       if(balancerSocket != ''){
         balancerSocket.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
       }
 
     }else if(socket.handshake.query.type == 'balancer'){
-     const newNodos = socket.handshake.query.nodos;
-     balancerSocket = socket;
-     //agrego los nodos que me faltan
-//      newNodos.forEach((item) => {
-//       console.log(item)
-//     });
-
-     socket.emit('initial-nodes',[...nodos]);
+      balancerSocket = socket;
+      if(nodos.size > 0) {
+        socket.emit('initial-nodes',[...nodos]);
+      }else {
+        socket.emit('request-nodes');
+      }
     }
     else{
     	socket.emit('nodo', selectNodo());
@@ -51,6 +64,16 @@ io.on("connection", (socket) => {
       if(!nodos.has(data.socketId)){
         nodos.set(data.socketId, data.url)
       }
+    })
+
+    socket.on('initial-nodes', (data) => {
+      [... data].forEach(([k,v]) => {
+         if(!nodos.has(k)){
+           nodos.set(k,v);
+         }
+       });
+
+       console.log(nodos);
     })
 
     socket.on('deleted-nodo', (data) => {

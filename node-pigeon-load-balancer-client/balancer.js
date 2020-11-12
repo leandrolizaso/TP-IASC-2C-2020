@@ -24,11 +24,11 @@ Array.prototype.random = function(){
 }
 
 balancer = socketIO(balancerURL, {
-     query: { nodos: JSON.stringify((nodos)), type: 'balancer'}
+     query: { type: 'balancer'}
  });
 
 
- balancer.on('added-nodo', (data) => {
+balancer.on('added-nodo', (data) => {
    console.log(data);
     if(!nodos.has(data.socketId)){
       nodos.set(data.socketId, data.url)
@@ -50,9 +50,24 @@ balancer.on('initial-nodes', (data) => {
     }
   })
   console.log(nodos);
-  //agrego los nodos que no tengo
 })
 
+balancer.on('request-nodes', (socket) => {
+  balancer.emit('initial-nodes', [...nodos]);
+});
+
+const addNodo = (id, nodoUrl) => {
+  nodoKey = getByValue(nodos, nodoUrl);
+  nodos.delete(nodoKey);
+  nodos.set(id, nodoUrl);
+};
+
+function getByValue(map, searchValue) {
+  for (let [key, value] of map.entries()) {
+    if (value === searchValue)
+      return key;
+  }
+}
 
 io.on("connection", (socket) => {
 
@@ -60,7 +75,7 @@ io.on("connection", (socket) => {
 
     if(socket.handshake.query.type == 'nodo'){
     	const nodoUrl = socket.handshake.query.url;
-    	nodos.set(socket.id, nodoUrl);
+      addNodo(socket.id, nodoUrl);
       if(balancer != ''){
         balancer.emit('added-nodo', {socketId: socket.id, url: nodoUrl});
       }
