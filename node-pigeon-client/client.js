@@ -358,8 +358,14 @@ function assingEvents(socket){
 
   	} else {
       serverURL = "http://localhost:" + data;
-      setToDefaultConnection();
+      if (connection.socket) {
+        connection.socket.disconnect();
+        connection.socket = null;
+      }
       connection.socket = connectToServer();
+      if(loggedIn()){
+        connection.socket.emit("login", connection.username)
+      }
       addConnectionEvents();
       addChatEvents();
       console.log(chalk.greenBright("Found a server! It's located at " + chalk.white(serverURL)));
