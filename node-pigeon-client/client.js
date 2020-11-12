@@ -1,9 +1,10 @@
 var serverURL = "";
-const balancerURL = "http://localhost:4000";
+let balancerURL = "http://localhost:4001";
+let balancerURLBackup = "http://localhost:4002";
 const socketIO = require("socket.io-client");
-const chalk = require("chalk");  
+const chalk = require("chalk");
 const lineReader = require("serverline")
-const connection = {socket: null, username: null, room: null};
+const connection = {socket: null, socketBalancer: null, username: null, room: null};
 const currentMessages = [];
 
 lineReader.init()
@@ -23,7 +24,7 @@ function getWords(str) {
 }
 
 function connectToServer(username) {
-  var opts = { 	
+  var opts = {
 
        query: { username: username }
    }
@@ -36,9 +37,14 @@ function send(event, data) {
 }
 
 function login(username) {
-  connection.socket = connectToServer(username);
-  connection.username = username;
-  addConnectionEvents();
+  send("login", username);
+}
+
+function logOff() {
+  send("logoff");
+  connection.room = null;
+  connection.username = null;
+  console.log(chalk.magenta("Logged off!"));
 }
 
 function joinChat(id) {
@@ -95,14 +101,12 @@ function leaveChat() {
 }
 
 function setToDefaultConnection() {
-  connection.socket.disconnect();
+  if (connection.socket) {
+    connection.socket.disconnect();
+    connection.socket = null;
+  }
   connection.username = null;
   connection.room = null;
-}
-
-function disconnect() {
-  setToDefaultConnection();
-  console.log(chalk.magenta("Logged off!"));
 }
 
 function loggedIn() {
@@ -312,7 +316,7 @@ lineReader.on("line", function(line) {
       break;
     case "/logoff":
       if (loggedIn())
-        disconnect();
+        logOff();
       else
         console.log(chalk.red("You must be logged in."))
       break;
@@ -320,7 +324,7 @@ lineReader.on("line", function(line) {
       console.log(chalk.red("Unknown command. Please type /help for more information."));
   }
 })
- 
+
 lineReader.on("SIGINT", function(rl) {
   rl.question("Do you really want to quit? (y/n): ", (answer) => {
     if (answer.match(/^y(es)?$/i)) {
@@ -335,41 +339,76 @@ function addSocketEvent(eventName, callback) {
   connection.socket.on(eventName, callback);
 }
 
-connection.socketBalancer = socketIO(balancerURL, {});	
+connection.socketBalancer = socketIO(balancerURL, {});
+assingEvents(connection.socketBalancer);
 
-connection.socketBalancer.on("nodo", (data) => {
-	if(data == ''){
-    console.log(chalk.red("Couldn't find active server. Retrying..."));
-    const oneSecond = 1000;
-	  setTimeout(() => connection.socketBalancer.emit("reconnect-server"), oneSecond);
-	} else {
-    serverURL = "http://localhost:" + data;
-    console.log(chalk.greenBright("Found a server! It's located at " + chalk.white(serverURL)));
-    welcome();
-	}
-	
-});
+function assingEvents(socket){
+  socket.on("nodo", (data) => {
+    if(connection.socket != null) connection.socket.disconnect();
+    console.log('llego nodo')
+  	if(data == ''){
+      console.log(chalk.red("Couldn't find active server. Retrying..."));
+    //  if(!connection.reconnectServer){
+  //      connection.reconnectServer = true;
+        setTimeout(() => {
+          socket.emit("reconnect-server");
+    //      connection.reconnectServer = false;
+        }, 1500);
+    //  }
+
+  	} else {
+      serverURL = "http://localhost:" + data;
+      if (connection.socket) {
+        connection.socket.disconnect();
+        connection.socket = null;
+      }
+      connection.socket = connectToServer();
+      if(loggedIn()){
+        connection.socket.emit("login", connection.username)
+      }
+      addConnectionEvents();
+      addChatEvents();
+      console.log(chalk.greenBright("Found a server! It's located at " + chalk.white(serverURL)));
+      welcome();
+  	}
+
+  });
+
+  socket.on('connect_error', function (err) {
+      console.log('connecting to another server');
+      //if(connection.reconnectBalancer){return;}
+      socket.disconnect();
+      setTimeout(() => {
+        socket = connection.socketBalancer = socketIO(balancerURLBackup, {});
+        let server = balancerURL;
+        balancerURL = balancerURLBackup;
+        balancerURLBackup = server;
+        assingEvents(socket);
+      //  connection.reconnectBalancer = false;
+      }, 1500);
+
+  });
+}
 
 function addConnectionEvents() {
-  addSocketEvent("authorization", (authorized) => {
-    if (authorized) {
+  addSocketEvent("authorization", (authorization) => {
+    if (authorization.authorized) {
       console.log(chalk.green("Login success"));
-      username = connection.socket.io.opts.query.username;
-      addChatEvents();
+      connection.username = authorization.username;
     } else {
-      console.log(chalk.red("Couldn't login!"));
-      setToDefaultConnection();
+      console.log(chalk.red("User is already logged in!"));
     }
   })
 
   addSocketEvent("reconnecting", (reason) => {
-    if (reason !== "io client disconnect")
+    if (reason !== "io client disconnect"){
+      const oneSecond = 1000;
+      setTimeout(() => connection.socketBalancer.emit("reconnect-server"), oneSecond);
       console.log(chalk.red("Network error. Retrying connection..."));
+    }
   })
 
-  addSocketEvent("reconnect", () => {
-    connection.socket.off();
-    addConnectionEvents();
+  addSocketEvent("connect", () => {
     if (connection.room) {
       joinChat(connection.room);
       connection.room = null;
@@ -438,8 +477,8 @@ function addChatEvents() {
           console.log(chalk.yellow(chat.id + " - " + "Chat group - " + chat.users.length + " members"));
         else if (chat.users.length > 1)
           console.log(chalk.yellow(chat.id + " - " + "Chat between " + chat.users[0] + " & " + chat.users[1]));
-        else 
-          console.log(chalk.yellow(chat.id + " - " + "Personal chat"));        
+        else
+          console.log(chalk.yellow(chat.id + " - " + "Personal chat"));
       })
   })
 
@@ -449,7 +488,7 @@ function addChatEvents() {
     else
       console.log(chalk.red("Couldn't invite user. No permission/user inactive/user already in group"));
   });
-  
+
   addSocketEvent("remove-from-group", (canRemove) => {
     if (canRemove)
       console.log(chalk.green("User was removed from the group successfully!"));
@@ -480,7 +519,7 @@ function addChatEvents() {
   addSocketEvent("chat-group-remove", (remove) => {
     const username = remove.username;
     const chatID = remove.id;
-    console.log(chalk.red(username + " has removed you from group #" + chatID)); 
+    console.log(chalk.red(username + " has removed you from group #" + chatID));
     if (connection.room === chatID)
       leaveChat();
   })
@@ -501,5 +540,3 @@ function addChatEvents() {
     })
   })
 }
-
-  
