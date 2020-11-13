@@ -254,7 +254,7 @@ io.of('/').adapter.customHook = (data, callback) => {
     switch (data.type) {
         case reqType.USEREXISTS: callback(isUserConnected(data.username)); break;
         case reqType.PRIVATECHAT: callback(getPrivateChat(data.username, data.otherUsername)); break;
-        case reqType.CHATMESSAGES: callback(getChatMessages(data.chatID));
+        case reqType.CHATMESSAGES: callback(getChatMessages(data.chatID)); break;
         case reqType.INVITEUSER: callback(sendUserInvitation(data.username, data.otherUsername, data.chatID)); break;
         case reqType.MESSAGE: callback(treatMessage(data.chatID, data.envelope)); break;
         default: callback(null);
@@ -280,7 +280,6 @@ function requestNodes(data) {
 }
 
 function getFirstValidResponse(responses) {
-    log(responses)
     return responses.find(elem => elem);
 }
 
