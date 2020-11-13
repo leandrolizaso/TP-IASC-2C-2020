@@ -36,6 +36,15 @@ function getMapKeys(map) {
     return [... map.keys()];
 }
 
+function getUniqueChats(chats) {
+    const unique = [];
+    chats.forEach(chat => {
+        if (!unique.some(otherChat => chat.id === otherChat.id))
+            unique.push(chat);
+    });
+    return unique;
+}
+
 /*  ********************************************
     Node state management and querying functions
     ********************************************  */
@@ -246,7 +255,8 @@ const reqType = {
     PRIVATECHAT: 1,
     CHATMESSAGES: 2,
     INVITEUSER: 3,
-    MESSAGE: 4
+    MESSAGE: 4,
+    USERCHATS: 5
 }
 
 //customHook will handle and reply to any customRequest from other nodes
@@ -257,6 +267,7 @@ io.of('/').adapter.customHook = (data, callback) => {
         case reqType.CHATMESSAGES: callback(getChatMessages(data.chatID)); break;
         case reqType.INVITEUSER: callback(sendUserInvitation(data.username, data.otherUsername, data.chatID)); break;
         case reqType.MESSAGE: callback(treatMessage(data.chatID, data.envelope)); break;
+        case reqType.USERCHATS: callback(getUserChats(data.username)); break;
         default: callback(null);
     }
 }
@@ -281,6 +292,10 @@ function requestNodes(data) {
 
 function getFirstValidResponse(responses) {
     return responses.find(elem => elem);
+}
+
+function getValidResponses(responses) {
+    return responses.filter(elem => elem);
 }
 
 function askForUserConnected(username) {
@@ -383,6 +398,23 @@ function askForMessageTreatment(chatID, envelope) {
     });
 }
 
+function askForUserChats(username) {
+    return new Promise((resolve, reject) => {
+        const localChats = getUserChats(username);
+        const data = {
+            type: reqType.USERCHATS,
+            username: username
+        }
+        requestNodes(data).then(responses => {
+            const externalChats = getValidResponses(responses).flat();
+            const chats = getUniqueChats(localChats.concat(externalChats));
+            resolve(chats);
+        }).catch((reason) => {
+            reject(reason);
+        })
+    });
+}
+
 /*  **************************
     Event management functions
     **************************  */
@@ -443,6 +475,17 @@ function manageMessage(chatID, envelope) {
         log(reason);
     });
 }
+
+function manageUserChats(socket) {
+    const username = socket.username;
+    askForUserChats(username).then((chats) => {
+        socket.emit("query-chats", chats);
+    }).catch((reason) => {
+        log(reason);
+    });
+}
+
+
 
 /*  ********************************
     Functions for chat interactivity
@@ -591,10 +634,9 @@ io.on("connection", (socket) => {
         }
     })
 
-    //ToDo PubSub adaptation
     socket.on("query-chats", () => {
         log(socket.username + " wants to know his chats ");
-        socket.emit("query-chats", getUserChats(socket.username));
+        manageUserChats(socket);
     })
 
     socket.on("leave-chat", (id) => {
