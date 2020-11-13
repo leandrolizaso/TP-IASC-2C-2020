@@ -245,10 +245,33 @@ function registerMessage(chatID, envelope) {
 }
 
 function treatMessage(chatID, envelope) {
-    let success = false
+    let success = false;
     if (isChatHere(chatID)) {
         registerMessage(chatID, envelope);
         success = true;
+    }
+    return success;
+}
+
+function treatMessageEdit(username, envelope) {
+    let success = false;
+    if (isChatHere(envelope.chatID)) {
+        const canEdit = canEditMessage(username, envelope);
+        if (canEdit) {
+            editMessage(envelope);
+            success = true;
+        }
+    }
+    return success;
+}
+
+function treatMessageDelete(username, envelope) {
+    let success = false;
+    if (isChatHere(envelope.chatID)) {
+        const canDelete = canEditMessage(username, envelope);
+        if (canDelete) {
+            success = deleteMessage(envelope.chatID, envelope);
+        }
     }
     return success;
 }
@@ -263,7 +286,9 @@ const reqType = {
     CHATMESSAGES: 2,
     INVITEUSER: 3,
     MESSAGE: 4,
-    USERCHATS: 5
+    USERCHATS: 5,
+    EDITMESSAGE: 6,
+    DELETEMESSAGE: 7
 }
 
 //customHook will handle and reply to any customRequest from other nodes
@@ -275,6 +300,8 @@ io.of('/').adapter.customHook = (data, callback) => {
         case reqType.INVITEUSER: callback(sendUserInvitation(data.username, data.otherUsername, data.chatID)); break;
         case reqType.MESSAGE: callback(treatMessage(data.chatID, data.envelope)); break;
         case reqType.USERCHATS: callback(getUserChats(data.username)); break;
+        case reqType.EDITMESSAGE: callback(treatMessageEdit(data.username, data.envelope)); break;
+        case reqType.DELETEMESSAGE: callback(treatMessageDelete(data.username, data.envelope)); break;
         default: callback(null);
     }
 }
@@ -422,6 +449,50 @@ function askForUserChats(username) {
     });
 }
 
+function askForEditMessage(username, envelope) {
+    return new Promise((resolve, reject) => {
+        if (isChatHere(envelope.chatID)) {
+            const canEdit = canEditMessage(username, envelope);
+            if (canEdit) 
+                editMessage(envelope);
+            resolve(canEdit);
+        } else {
+            const data = {
+                type: reqType.EDITMESSAGE,
+                username: username,
+                envelope: envelope
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForDeleteMessage(username, envelope) {
+    return new Promise((resolve, reject) => {
+        if (isChatHere(envelope.chatID)) {
+            const canDelete = canEditMessage(username, envelope);
+            if (canDelete) 
+                deleteMessage(envelope.chatID, envelope);
+            resolve(canDelete);
+        } else {
+            const data = {
+                type: reqType.DELETEMESSAGE,
+                username: username,
+                envelope: envelope
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
 /*  **************************
     Event management functions
     **************************  */
@@ -492,6 +563,34 @@ function manageUserChats(socket) {
     });
 }
 
+function manageEditMessage(socket, envelope) {
+    const username = socket.username;
+    askForEditMessage(username, envelope).then((success) => {
+        if (success) {
+            log("Message " + envelope.timestamp + " edited");
+            socket.to(envelope.chatID).emit("edited-message", envelope);
+        } else
+            log("Message " + envelope.timestamp + " couldn't be edited");
+        socket.emit("edit-message", success);
+    }).catch((reason) => {
+        log(reason);
+    });
+}
+
+function manageDeleteMessage(socket, envelope) {
+    const username = socket.username;
+    askForDeleteMessage(username, envelope).then((success) => {
+        if (success) {
+            log("Message " + envelope.timestamp + " deleted");
+            socket.to(envelope.chatID).emit("deleted-message", envelope);
+        } else
+            log("Message " + envelope.timestamp + " couldn't be deleted");
+        socket.emit("delete-message", success);
+    }).catch((reason) => {
+        log(reason);
+    });
+}
+
 /*  ********************************
     Functions for chat interactivity
     ********************************  */
@@ -548,26 +647,14 @@ io.on("connection", (socket) => {
         manageMessage(data.room, envelope);
     })
 
-    //ToDo PubSub adaptation
-    socket.on("edit-message", (envelope) => {
-        log(username + " wants to edit message " + envelope.timestamp);
-        const canEdit = canEditMessage(socket.username, envelope);
-        if (canEdit) {
-            editMessage(envelope);
-            socket.to(envelope.chatID).emit("edited-message", envelope);
-        }
-        socket.emit("edit-message", canEdit);
+    socket.on("edit-message", (editEnvelope) => {
+        log(socket.username + " wants to edit message " + editEnvelope.timestamp);
+        manageEditMessage(socket, editEnvelope);
     })
 
-    //ToDo PubSub adaptation
-    socket.on("delete-message", (envelope) => {
-        log(socket.username + " wants to delete message " + envelope.timestamp);
-        const canDelete = canEditMessage(socket.username, envelope);
-        if (canDelete) {
-            deleteMessage(envelope);
-            socket.to(envelope.chatID).emit("deleted-message", envelope);
-        }
-        socket.emit("delete-message", canDelete);
+    socket.on("delete-message", (deleteEnvelope) => {
+        log(socket.username + " wants to delete message " + deleteEnvelope.timestamp);
+        manageDeleteMessage(socket, deleteEnvelope)
     })
 
     socket.on("chat-with", (otherUsername) => {
