@@ -201,8 +201,8 @@ function editMessage(newEnvelope) {
     envelope.message = newEnvelope.message;
 }
 
-function deleteMessage(envelope) {
-    const chat = chats.get(envelope.chatID);
+function deleteMessage(chatID, envelope) {
+    const chat = chats.get(chatID);
     return chat.messages.delete(envelope.timestamp);
 }
 
@@ -235,6 +235,13 @@ function isChatHere(chatID) {
 function registerMessage(chatID, envelope) {
     io.to(chatID).emit("message", envelope);
     saveMessage(chatID, envelope);
+    if (envelope.expires)
+        setTimeout(() => {
+            if (deleteMessage(chatID, envelope))
+                io.to(chatID).emit("deleted-message", envelope);
+        }, envelope.expires);
+    //What if node falls when this timer is still up?
+    //In that case, other nodes who have this chat should realize it and manage secure messages again
 }
 
 function treatMessage(chatID, envelope) {
@@ -485,8 +492,6 @@ function manageUserChats(socket) {
     });
 }
 
-
-
 /*  ********************************
     Functions for chat interactivity
     ********************************  */
@@ -532,21 +537,15 @@ io.on("connection", (socket) => {
         manageMessage(data.room, envelope)
     })
 
-    //ToDo PubSub adaptation
     socket.on("secure-message", (data) => {
         log(data);
         const envelope = {
             timestamp: Date.now(),
             message: data.message,
             username: socket.username,
-            chatID: data.room
-        }
-        io.to(data.room).emit("message", envelope);
-        saveMessage(data.room, envelope);
-        setTimeout(() => {
-            if (deleteMessage(envelope))
-                io.to(data.room).emit("deleted-message", envelope);
-        }, data.timeout * 1000);
+            expires: data.timeout * 1000
+        };
+        manageMessage(data.room, envelope);
     })
 
     //ToDo PubSub adaptation
@@ -676,9 +675,9 @@ let opts = {
 
 connection = socketIO(balancerURL, opts)
 
-assingEvents(connection);
+assignEvents(connection);
 
-function assingEvents(socket){
+function assignEvents(socket){
   socket.on('connect_error', function (err) {
       console.log('connecting to another balancer');
       socket.disconnect();
@@ -687,8 +686,7 @@ function assingEvents(socket){
         let server = balancerURL;
         balancerURL = balancerURLBackup;
         balancerURLBackup = server;
-        assingEvents(socket);
-      //  connection.reconnectBalancer = false;
+        assignEvents(socket);
       }, 1500);
 
   });
