@@ -110,11 +110,6 @@ function notifyUser(motive, username, otherUsername, chatID, data) {
     });
 }
 
-function inviteUserToGroupChat(username, otherUsername, chatID) {
-    addUserToChat(otherUsername, chatID);
-    notifyUser("chat-group-invite", username, otherUsername, chatID);
-}
-
 function getUserChats(username) {
     const userChats = [... chats].filter(([id, chat]) => isChatMember(id, username))
     return userChats.map(([id, chat]) => {return {
@@ -206,6 +201,10 @@ function deleteMessage(chatID, envelope) {
     return chat.messages.delete(envelope.timestamp);
 }
 
+function canInviteToGroup(username, otherUsername, chatID) {
+    return isGroupAdmin(chatID, username) && !isChatMember(chatID, otherUsername);
+}
+
 function isUserConnected(username) {
     return users.has(username);
 }
@@ -219,10 +218,11 @@ function getChatMessages(chatID) {
     return null;
 }
 
-function sendUserInvitation(username, otherUsername, chatID) {
+function sendInvitation(username, invite) {
     let success = false;
-    if (isUserConnected(otherUsername)) {
-        notifyUser("chat-invite", username, otherUsername, chatID);
+    if (isUserConnected(invite.username)) {
+        let inviteType = invite.group ? "chat-group-invite" : "chat-invite";
+        notifyUser(inviteType, username, invite.username, invite.chatID);
         success = true;
     }
     return success;
@@ -276,6 +276,18 @@ function treatMessageDelete(username, envelope) {
     return success;
 }
 
+function treatGroupAdd(username, invite) {
+    let success = false;
+    if (isChatHere(invite.chatID)) {
+        const canInvite = canInviteToGroup(username, invite.username, invite.chatID)
+        if (canInvite) {
+            addUserToChat(invite.username, invite.chatID);
+            success = true;
+        }
+    }
+    return success;
+}
+
 /*  **********************************************  
     Functionality to request data from other nodes
     **********************************************  */  
@@ -288,7 +300,9 @@ const reqType = {
     MESSAGE: 4,
     USERCHATS: 5,
     EDITMESSAGE: 6,
-    DELETEMESSAGE: 7
+    DELETEMESSAGE: 7,
+    GROUPADD: 8,
+    CANJOINCHAT: 9
 }
 
 //customHook will handle and reply to any customRequest from other nodes
@@ -297,11 +311,13 @@ io.of('/').adapter.customHook = (data, callback) => {
         case reqType.USEREXISTS: callback(isUserConnected(data.username)); break;
         case reqType.PRIVATECHAT: callback(getPrivateChat(data.username, data.otherUsername)); break;
         case reqType.CHATMESSAGES: callback(getChatMessages(data.chatID)); break;
-        case reqType.INVITEUSER: callback(sendUserInvitation(data.username, data.otherUsername, data.chatID)); break;
+        case reqType.INVITEUSER: callback(sendInvitation(data.username, data.invite)); break;
         case reqType.MESSAGE: callback(treatMessage(data.chatID, data.envelope)); break;
         case reqType.USERCHATS: callback(getUserChats(data.username)); break;
         case reqType.EDITMESSAGE: callback(treatMessageEdit(data.username, data.envelope)); break;
         case reqType.DELETEMESSAGE: callback(treatMessageDelete(data.username, data.envelope)); break;
+        case reqType.GROUPADD: callback(treatGroupAdd(data.username, data.invite)); break;
+        case reqType.CANJOINCHAT: callback(canJoinChat(data.username, data.chatID)); break;
         default: callback(null);
     }
 }
@@ -391,17 +407,15 @@ function askForChatMessages(chatID) {
     });
 }
 
-function askForUserInvitation(username, otherUsername, chatID) {
+function askForUserInvitation(username, invite) {
     return new Promise((resolve, reject) => {
-        if (isUserConnected(otherUsername)) {
-            notifyUser("chat-invite", username, otherUsername, chatID);
-            resolve(true);
+        if (isUserConnected(invite.username)) {
+            resolve(sendInvitation(username, invite));
         } else {
             const data = {
                 type: reqType.INVITEUSER,
                 username: username,
-                otherUsername: otherUsername,
-                chatID: chatID
+                invite: invite
             }
             requestNodes(data).then(responses => {
                 resolve(responses.includes(true));
@@ -493,6 +507,53 @@ function askForDeleteMessage(username, envelope) {
     });
 }
 
+function askForGroupInvite(username, invite) {
+    return new Promise((resolve, reject) => {
+        askForUserConnected(invite.username).then(connected => {
+            if (connected) {
+                if (isChatHere(invite.chatID)) {
+                    resolve(treatGroupAdd(username, invite));
+                } else {
+                    const data = {
+                        type: reqType.GROUPADD,
+                        username: username,
+                        invite: invite
+                    }
+                    requestNodes(data).then(responses => {
+                        resolve(responses.includes(true));
+                    }).catch((reason) => {
+                        reject(reason);
+                    })
+                }
+            }
+            else {
+                resolve(false);
+            }
+        }).catch(reason => {
+            reject(reason);
+        })
+    });
+}
+
+function askForCanJoinChat(username, chatID) {
+    return new Promise((resolve, reject) => {
+        if (isChatHere(chatID)) {
+            resolve(canJoinChat(username, chatID));
+        } else {
+            const data = {
+                type: reqType.CANJOINCHAT,
+                username: username,
+                chatID: chatID
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
 /*  **************************
     Event management functions
     **************************  */
@@ -531,7 +592,12 @@ function managePrivateChat(socket, otherUsername) {
                 socket.join(chatID);
                 socket.emit("chat-with", chatID);
                 sendChatMessages(username, chatID);
-                inviteUserToChat(username, otherUsername, chatID);
+                const invite = {
+                    username: otherUsername,
+                    chatID: chatID,
+                    group: false
+                };
+                inviteUserToChat(username, invite);
             }).catch(reason => {
                 log(reason);
                 socket.emit("chat-with", null);
@@ -591,6 +657,40 @@ function manageDeleteMessage(socket, envelope) {
     });
 }
 
+function manageGroupInvite(socket, invite) {
+    const username = socket.username;
+    askForGroupInvite(username, invite).then((success) => {
+        if (success) {
+            log(invite.username + " was added to group " + invite.chatID);
+            invite.group = true;
+            inviteUserToChat(username, invite);
+        } else
+            log("Couldn't add user to group");
+        socket.emit("invite-to-group", success);
+    }).catch((reason) => {
+        log(reason);
+    });
+}
+
+function manageJoinChat(socket, chatID) {
+    const username = socket.username;
+    askForCanJoinChat(username, chatID).then((success) => {
+        if (success) {
+            socket.emit("join-chat", {
+                available: success,
+                id: chatID
+            });
+            if (success)  {
+                socket.join(chatID);
+                sendChatMessages(username, chatID);
+            }
+        } else
+            log(username + " couldn't join " + chatID);
+    }).catch((reason) => {
+        log(reason);
+    });
+}
+
 /*  ********************************
     Functions for chat interactivity
     ********************************  */
@@ -605,12 +705,12 @@ function sendChatMessages(username, chatID) {
     })
 }
 
-function inviteUserToChat(username, otherUsername, chatID) {
-    askForUserInvitation(username, otherUsername, chatID).then(success => {
+function inviteUserToChat(username, invite) {
+    askForUserInvitation(username, invite).then(success => {
         if (success)
-            log(username + " invited " + otherUsername + " to " + chatID);
+            log(username + " invited " + invite.username + " to " + invite.chatID);
         else
-            log(username + " wanted to invite " + otherUsername + " to " + chatID + " but failed");
+            log(username + " wanted to invite " + invite.username + " to " + invite.chatID + " but failed");
     }).catch(reason => {
         log(reason);
     })
@@ -662,7 +762,6 @@ io.on("connection", (socket) => {
         managePrivateChat(socket, otherUsername);
     })
 
-    //ToDo PubSub adaptation
     socket.on("create-group", () => {
         log(socket.username + " wants to create a group");
         let chatID = createGroupChat(socket.username);
@@ -670,15 +769,9 @@ io.on("connection", (socket) => {
         socket.emit("create-group", chatID);
     })
 
-    //ToDo PubSub adaptation
-    socket.on("invite-to-group", (groupInvite) => {
-        const chatID = groupInvite.chatID;
-        const otherUsername = groupInvite.username;
-        log(socket.username + " wants to invite to group " + otherUsername);
-        const canInvite = askForUserConnected(otherUsername) && isGroupAdmin(chatID, socket.username) && !isChatMember(chatID, otherUsername);
-        if (canInvite)
-            inviteUserToGroupChat(socket.username, otherUsername, chatID);
-        socket.emit("invite-to-group", canInvite);
+    socket.on("invite-to-group", (invite) => {
+        log(socket.username + " wants to invite to group " + invite.username);
+        manageGroupInvite(socket, invite);
     })
 
     //ToDo PubSub adaptation
@@ -704,20 +797,9 @@ io.on("connection", (socket) => {
         socket.emit("privilege", canSetPrivilege);
     })
 
-    //ToDo PubSub adaptation
     socket.on("join-chat", (id) => {
         log(socket.username + " wants to join chat " + id);
-        const availableChat = canJoinChat(socket.username, id);
-
-        socket.emit("join-chat", {
-            available: availableChat,
-            id: id
-        });
-
-        if (availableChat)  {
-            socket.join(id);
-            sendChatMessages(socket.username, id);
-        }
+        manageJoinChat(socket, id);
     })
 
     socket.on("query-chats", () => {
