@@ -161,16 +161,26 @@ function isGroupAdmin(chatID, username) {
 
 function removeUserFromGroupChat(username, otherUsername, chatID) {
     const chat = chats.get(chatID);
-    chat.users.delete(otherUsername);
-    if (askForUserConnected(otherUsername))
-        notifyUser("chat-group-remove", username, otherUsername, chatID);
+    let removed = false;
+    if (chat) {
+        if (isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username)) {
+            removed = chat.users.delete(otherUsername);
+        }
+    }
+    return removed;
 }
 
 function setPrivilege(adminStatus, otherUsername, username, chatID) {
-    const chat = chats.get(chatID);
-    chat.users.set(otherUsername, adminStatus);
-    if (askForUserConnected(otherUsername))
-        notifyUser("chat-group-privilege", username, otherUsername, chatID, {admin: adminStatus});
+    let success = false;
+    if (isChatHere(chatID)) {
+        const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
+        if (canSetPrivilege) {
+            const chat = chats.get(chatID);
+            chat.users.set(otherUsername, adminStatus);
+            success = true;
+        }
+    }
+    return success;
 }
 
 function isMessageOwner(chatID, timestamp, username) {
@@ -288,9 +298,18 @@ function treatGroupAdd(username, invite) {
     return success;
 }
 
-/*  **********************************************  
+function sendNotification(username, otherUsername, chatID, type, data) {
+    let success = false;
+    if (isUserConnected(otherUsername)) {
+        notifyUser(type, username, otherUsername, chatID, data);
+        success = true;
+    }
+    return success;
+}
+
+/*  **********************************************
     Functionality to request data from other nodes
-    **********************************************  */  
+    **********************************************  */
 
 const reqType = {
     USEREXISTS: 0,
@@ -302,7 +321,10 @@ const reqType = {
     EDITMESSAGE: 6,
     DELETEMESSAGE: 7,
     GROUPADD: 8,
-    CANJOINCHAT: 9
+    CANJOINCHAT: 9,
+    DELETEFROMGROUP: 10,
+    SETPRIVILEGE: 11,
+    NOTIFYUSER: 12
 }
 
 //customHook will handle and reply to any customRequest from other nodes
@@ -318,6 +340,9 @@ io.of('/').adapter.customHook = (data, callback) => {
         case reqType.DELETEMESSAGE: callback(treatMessageDelete(data.username, data.envelope)); break;
         case reqType.GROUPADD: callback(treatGroupAdd(data.username, data.invite)); break;
         case reqType.CANJOINCHAT: callback(canJoinChat(data.username, data.chatID)); break;
+        case reqType.DELETEFROMGROUP: callback(removeUserFromGroupChat(data.username, data.otherUsername, data.chatID)); break;
+        case reqType.SETPRIVILEGE: callback(setPrivilege(data.adminStatus, data.otherUsername, data.username, data.chatID)); break;
+        case reqType.NOTIFYUSER: callback(sendNotification(data.username, data.otherUsername, data.chatID, data.notifyType, data.data)); break;
         default: callback(null);
     }
 }
@@ -332,9 +357,9 @@ io.of('/').adapter.customHook = (data, callback) => {
 function requestNodes(data) {
     return new Promise((resolve, reject) => {
         io.of('/').adapter.customRequest(data, (err, responses) => {
-        if (err) 
+        if (err)
             reject(err);
-        else 
+        else
             resolve(responses);
         });
     });
@@ -467,7 +492,7 @@ function askForEditMessage(username, envelope) {
     return new Promise((resolve, reject) => {
         if (isChatHere(envelope.chatID)) {
             const canEdit = canEditMessage(username, envelope);
-            if (canEdit) 
+            if (canEdit)
                 editMessage(envelope);
             resolve(canEdit);
         } else {
@@ -489,7 +514,7 @@ function askForDeleteMessage(username, envelope) {
     return new Promise((resolve, reject) => {
         if (isChatHere(envelope.chatID)) {
             const canDelete = canEditMessage(username, envelope);
-            if (canDelete) 
+            if (canDelete)
                 deleteMessage(envelope.chatID, envelope);
             resolve(canDelete);
         } else {
@@ -544,6 +569,69 @@ function askForCanJoinChat(username, chatID) {
                 type: reqType.CANJOINCHAT,
                 username: username,
                 chatID: chatID
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForRemoveUserFromGroupChat(username, otherUsername, chatID) {
+    return new Promise((resolve, reject) => {
+        if (isChatHere(chatID)) {
+            resolve(removeUserFromGroupChat(username, otherUsername, chatID));
+        } else {
+            const data = {
+                type: reqType.DELETEFROMGROUP,
+                otherUsername: otherUsername,
+                username: username,
+                chatID: chatID
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForSetPrivilege(adminStatus, otherUsername, username, chatID) {
+    return new Promise((resolve, reject) => {
+        if (isChatHere(chatID)) {
+            resolve(setPrivilege(adminStatus, otherUsername, username, chatID));
+        } else {
+            const data = {
+                type: reqType.SETPRIVILEGE,
+                adminStatus: adminStatus,
+                otherUsername: otherUsername,
+                username: username,
+                chatID: chatID
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForUserNotification(username, otherUsername, chatID, notifyType, otherData) {
+    return new Promise((resolve, reject) => {
+        if (isUserConnected(otherUsername)) {
+            resolve(sendNotification(username, otherUsername, chatID, notifyType, otherData));
+        } else {
+            const data = {
+                type: reqType.NOTIFYUSER,
+                username: username,
+                otherUsername: otherUsername,
+                chatID: chatID,
+                notifyType: notifyType,
+                data: otherData
             }
             requestNodes(data).then(responses => {
                 resolve(responses.includes(true));
@@ -675,15 +763,13 @@ function manageGroupInvite(socket, invite) {
 function manageJoinChat(socket, chatID) {
     const username = socket.username;
     askForCanJoinChat(username, chatID).then((success) => {
+        socket.emit("join-chat", {
+            available: success,
+            id: chatID
+        });
         if (success) {
-            socket.emit("join-chat", {
-                available: success,
-                id: chatID
-            });
-            if (success)  {
-                socket.join(chatID);
-                sendChatMessages(username, chatID);
-            }
+            socket.join(chatID);
+            sendChatMessages(username, chatID);
         } else
             log(username + " couldn't join " + chatID);
     }).catch((reason) => {
@@ -691,6 +777,34 @@ function manageJoinChat(socket, chatID) {
     });
 }
 
+function manageRemoveUserFromGroupChat(socket, otherUsername, chatID) {
+    const username = socket.username;
+    askForRemoveUserFromGroupChat(username, otherUsername, chatID).then((success) => {
+        socket.emit("remove-from-group", success);
+        if (!success)
+            log(username + " couldn't remove " + otherUsername + "from " + chatID);
+        else
+            notifyUserInGroup(username, otherUsername, chatID, "chat-group-remove");
+    }
+  ).catch((reason) => {
+        log(reason);
+    });
+
+}
+
+function manageSetPrivilege(socket, otherUsername, adminStatus, chatID) {
+    const username = socket.username;
+    askForSetPrivilege(adminStatus, otherUsername, username, chatID).then((success) => {
+        socket.emit("privilege", success);
+        if (!success)
+            log(username + " couldn't set privilege to " + otherUsername);
+        else
+        notifyUserInGroup(username, otherUsername, chatID, "chat-group-privilege", {admin: adminStatus});
+    }).catch((reason) => {
+        log(reason);
+    });
+
+}
 /*  ********************************
     Functions for chat interactivity
     ********************************  */
@@ -711,6 +825,17 @@ function inviteUserToChat(username, invite) {
             log(username + " invited " + invite.username + " to " + invite.chatID);
         else
             log(username + " wanted to invite " + invite.username + " to " + invite.chatID + " but failed");
+    }).catch(reason => {
+        log(reason);
+    })
+}
+
+function notifyUserInGroup(username, otherUsername, chatID, type, data = null) {
+    askForUserNotification(username, otherUsername, chatID, type, data).then(success => {
+        if (success)
+            log(username + " emitted " + type + " to " + otherUsername + " succesfully");
+        else
+            log(username + " tried to emit " + type + " to " + otherUsername + " but failed");
     }).catch(reason => {
         log(reason);
     })
@@ -774,27 +899,20 @@ io.on("connection", (socket) => {
         manageGroupInvite(socket, invite);
     })
 
-    //ToDo PubSub adaptation
     socket.on("remove-from-group", (groupRemove) => {
         const chatID = groupRemove.chatID;
         const otherUsername = groupRemove.username;
         log(socket.username + " wants to remove from group " + otherUsername);
-        const canRemove = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, socket.username);
-        if (canRemove)
-            removeUserFromGroupChat(socket.username, otherUsername, chatID);
-        socket.emit("remove-from-group", canRemove);
+        manageRemoveUserFromGroupChat(socket, otherUsername, chatID);
     })
 
-    //ToDo PubSub adaptation
     socket.on("privilege", (permission) => {
         const otherUsername = permission.username;
         const adminStatus = permission.admin ;
         const chatID = permission.chatID;
         log(socket.username + " wants to set privilege to " + otherUsername);
-        const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, socket.username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
-        if (canSetPrivilege)
-            setPrivilege(adminStatus, otherUsername, socket.username, chatID);
-        socket.emit("privilege", canSetPrivilege);
+        manageSetPrivilege(socket, otherUsername, adminStatus, chatID);
+
     })
 
     socket.on("join-chat", (id) => {
