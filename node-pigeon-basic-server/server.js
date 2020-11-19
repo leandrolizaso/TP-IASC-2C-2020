@@ -161,19 +161,26 @@ function isGroupAdmin(chatID, username) {
 
 function removeUserFromGroupChat(username, otherUsername, chatID) {
     const chat = chats.get(chatID);
-    let remove = false;
-    if(chat)
-      removed = chat.users.delete(otherUsername);
-    if (askForUserConnected(otherUsername) && removed)
-        notifyUser("chat-group-remove", username, otherUsername, chatID);
+    let removed = false;
+    if (chat) {
+        if (isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username)) {
+            removed = chat.users.delete(otherUsername);
+        }
+    }
     return removed;
 }
 
 function setPrivilege(adminStatus, otherUsername, username, chatID) {
-    const chat = chats.get(chatID);
-    chat.users.set(otherUsername, adminStatus);
-    if (askForUserConnected(otherUsername))
-        notifyUser("chat-group-privilege", username, otherUsername, chatID, {admin: adminStatus});
+    let success = false;
+    if (isChatHere(chatID)) {
+        const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
+        if (canSetPrivilege) {
+            const chat = chats.get(chatID);
+            chat.users.set(otherUsername, adminStatus);
+            success = true;
+        }
+    }
+    return success;
 }
 
 function isMessageOwner(chatID, timestamp, username) {
@@ -291,6 +298,15 @@ function treatGroupAdd(username, invite) {
     return success;
 }
 
+function sendNotification(username, otherUsername, chatID, type, data) {
+    let success = false;
+    if (isUserConnected(otherUsername)) {
+        notifyUser(type, username, otherUsername, chatID, data);
+        success = true;
+    }
+    return success;
+}
+
 /*  **********************************************
     Functionality to request data from other nodes
     **********************************************  */
@@ -307,7 +323,8 @@ const reqType = {
     GROUPADD: 8,
     CANJOINCHAT: 9,
     DELETEFROMGROUP: 10,
-    SETPRIVILEGE: 11
+    SETPRIVILEGE: 11,
+    NOTIFYUSER: 12
 }
 
 //customHook will handle and reply to any customRequest from other nodes
@@ -325,6 +342,7 @@ io.of('/').adapter.customHook = (data, callback) => {
         case reqType.CANJOINCHAT: callback(canJoinChat(data.username, data.chatID)); break;
         case reqType.DELETEFROMGROUP: callback(removeUserFromGroupChat(data.username, data.otherUsername, data.chatID)); break;
         case reqType.SETPRIVILEGE: callback(setPrivilege(data.adminStatus, data.otherUsername, data.username, data.chatID)); break;
+        case reqType.NOTIFYUSER: callback(sendNotification(data.username, data.otherUsername, data.chatID, data.notifyType, data.data)); break;
         default: callback(null);
     }
 }
@@ -563,7 +581,7 @@ function askForCanJoinChat(username, chatID) {
 
 function askForRemoveUserFromGroupChat(username, otherUsername, chatID) {
     return new Promise((resolve, reject) => {
-        if (isChatHere(chatID) &&  isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username)) {
+        if (isChatHere(chatID)) {
             resolve(removeUserFromGroupChat(username, otherUsername, chatID));
         } else {
             const data = {
@@ -581,18 +599,39 @@ function askForRemoveUserFromGroupChat(username, otherUsername, chatID) {
     });
 }
 
-function askForSetprivilege(adminStatus, otherUsername, username, chatID) {
-    const canSetPrivilege = isChatMember(chatID, otherUsername) && isGroupAdmin(chatID, username) && isGroupAdmin(chatID, otherUsername) !== adminStatus;
+function askForSetPrivilege(adminStatus, otherUsername, username, chatID) {
     return new Promise((resolve, reject) => {
-        if (isChatHere(chatID) && canSetPrivilege) {
+        if (isChatHere(chatID)) {
             resolve(setPrivilege(adminStatus, otherUsername, username, chatID));
         } else {
             const data = {
                 type: reqType.SETPRIVILEGE,
-                adminStatus: adminStatuts,
+                adminStatus: adminStatus,
                 otherUsername: otherUsername,
                 username: username,
                 chatID: chatID
+            }
+            requestNodes(data).then(responses => {
+                resolve(responses.includes(true));
+            }).catch((reason) => {
+                reject(reason);
+            })
+        }
+    });
+}
+
+function askForUserNotification(username, otherUsername, chatID, notifyType, otherData) {
+    return new Promise((resolve, reject) => {
+        if (isUserConnected(otherUsername)) {
+            resolve(sendNotification(username, otherUsername, chatID, notifyType, otherData));
+        } else {
+            const data = {
+                type: reqType.NOTIFYUSER,
+                username: username,
+                otherUsername: otherUsername,
+                chatID: chatID,
+                notifyType: notifyType,
+                data: otherData
             }
             requestNodes(data).then(responses => {
                 resolve(responses.includes(true));
@@ -724,15 +763,13 @@ function manageGroupInvite(socket, invite) {
 function manageJoinChat(socket, chatID) {
     const username = socket.username;
     askForCanJoinChat(username, chatID).then((success) => {
+        socket.emit("join-chat", {
+            available: success,
+            id: chatID
+        });
         if (success) {
-            socket.emit("join-chat", {
-                available: success,
-                id: chatID
-            });
-            if (success)  {
-                socket.join(chatID);
-                sendChatMessages(username, chatID);
-            }
+            socket.join(chatID);
+            sendChatMessages(username, chatID);
         } else
             log(username + " couldn't join " + chatID);
     }).catch((reason) => {
@@ -743,10 +780,11 @@ function manageJoinChat(socket, chatID) {
 function manageRemoveUserFromGroupChat(socket, otherUsername, chatID) {
     const username = socket.username;
     askForRemoveUserFromGroupChat(username, otherUsername, chatID).then((success) => {
-      if (!success)
-        log(username + " couldn't remove " + otherUsername + "from " + chatID);
-
-      socket.emit("remove-from-group", success);
+        socket.emit("remove-from-group", success);
+        if (!success)
+            log(username + " couldn't remove " + otherUsername + "from " + chatID);
+        else
+            notifyUserInGroup(username, otherUsername, chatID, "chat-group-remove");
     }
   ).catch((reason) => {
         log(reason);
@@ -754,14 +792,14 @@ function manageRemoveUserFromGroupChat(socket, otherUsername, chatID) {
 
 }
 
-
 function manageSetPrivilege(socket, otherUsername, adminStatus, chatID) {
     const username = socket.username;
     askForSetPrivilege(adminStatus, otherUsername, username, chatID).then((success) => {
-        if (!success)
-          log(username + " couldn't set privilege to " + otherUsername);
-
         socket.emit("privilege", success);
+        if (!success)
+            log(username + " couldn't set privilege to " + otherUsername);
+        else
+        notifyUserInGroup(username, otherUsername, chatID, "chat-group-privilege", {admin: adminStatus});
     }).catch((reason) => {
         log(reason);
     });
@@ -787,6 +825,17 @@ function inviteUserToChat(username, invite) {
             log(username + " invited " + invite.username + " to " + invite.chatID);
         else
             log(username + " wanted to invite " + invite.username + " to " + invite.chatID + " but failed");
+    }).catch(reason => {
+        log(reason);
+    })
+}
+
+function notifyUserInGroup(username, otherUsername, chatID, type, data = null) {
+    askForUserNotification(username, otherUsername, chatID, type, data).then(success => {
+        if (success)
+            log(username + " emitted " + type + " to " + otherUsername + " succesfully");
+        else
+            log(username + " tried to emit " + type + " to " + otherUsername + " but failed");
     }).catch(reason => {
         log(reason);
     })
