@@ -6,21 +6,27 @@ const balancerURL = "http://localhost:4001";
 const port = 4002;
 var balancer = '';
 const log = console.log;
+let index = 0;
 
 var nodos = new Map();
 
 const selectNodo = () => {
     var urlNodos = Array.from(nodos.values());
-    if(urlNodos.length > 0){
-    	 return urlNodos.random();
+    let cant = urlNodos.length;
+    if(index >= cant)
+      index = 0;
+
+    if(cant > 0){
+      index++;
+    	return urlNodos[index];
     }else {
     	return '';
     }
 
 }
 
-Array.prototype.random = function(){
-  return this[Math.floor(Math.random()*this.length)];
+const increaseIndex = () => {
+  index++;
 }
 
 balancer = socketIO(balancerURL, {
@@ -87,6 +93,7 @@ io.on("connection", (socket) => {
 
     socket.on("reconnect-server", () => {
       socket.emit('nodo', selectNodo());
+      increaseIndex();
     })
 
     socket.on("disconnect", () => {
