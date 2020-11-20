@@ -4,7 +4,7 @@ const port = 5000;
 const log = console.log;
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
-
+let serverPort = 3010;
 
 var nodos = new Map();
 var chatLocation = [];
@@ -18,9 +18,19 @@ const addNodo = (id, nodoUrl) => {
 };
 
 const spawnNodo = async () => {
-  //run docker
-  const result = await exec('');
+  exec('sudo docker run --network="host" -v /var/run/docker.sock:/var/run/docker.sock server ' + serverPort);
+  serverPort ++;
   console.log(nodos);
+};
+
+const isSpawnNeccesary = () => {
+  //todo: definir politica de carga
+  return false;
+};
+
+const selectFreeNodo = () => {
+  return getByValue(nodosHealh, Math.min(...nodosHealh.values()));
+
 };
 
 function getByValue(map, searchValue) {
@@ -30,8 +40,11 @@ function getByValue(map, searchValue) {
   }
 }
 
-var checkInterval = setInterval(function(){io.to('Nodos').emit('healt-check');}, 60000);
-//puede ponerse en el nodo y es un mensaje menos
+
+var checkInterval = setInterval(function(){io.to('Nodos').emit('health-check');}, 10000);
+
+//var spwanInterval = setInterval(function(){spawnNodo();}, 20000);
+
 
 
 io.on("connection", (socket) => {
@@ -55,10 +68,7 @@ io.on("connection", (socket) => {
         chatID: data.chatID,
         nodo: data.url
       });
-    })
-
-    socket.on('deleted-chat', (data) => {
-      chatLocation = chatLocation.filter(c => c.chatID != data.chatID);
+      log(chatLocation);
     })
 
     socket.on('initial-nodes', (data) => {
@@ -71,10 +81,15 @@ io.on("connection", (socket) => {
        console.log(nodos);
     })
 
-    socket.on('healt-report', (data) => {
-      //todo
-      //if()
-        spawnNodo();
+    socket.on('health-report', (data) => {
+      nodo = nodos.get(socket.id);
+      nodosHealh.set(nodo, data);
+      //if(isSpawnNeccesary())
+      //  spawnNodo();
+    })
+
+    socket.on('free-nodo', (data) => {
+      socket.emit('free-nodo', selectFreeNodo());
     })
 
     socket.on('deleted-nodo', (data) => {
@@ -85,11 +100,12 @@ io.on("connection", (socket) => {
     })
 
     socket.on("disconnect", () => {
-      chatLocation = chatLocation.filter(c => c.nodo != data.url);
+      let nodo = nodos.get(socket.id);
+      chatLocation = chatLocation.filter(c => c.nodo != nodo);
       if(nodos.has(socket.id)){
         nodos.delete(socket.id);
       }
-
+      spawnNodo();
     })
 })
 

@@ -13,6 +13,9 @@ io.adapter(redis({
 
 let balancerURL = "http://localhost:4001";
 let balancerURLBackup = "http://localhost:4002";
+let master = "http://localhost:5000";
+
+let messagesCont = 0;
 
 const chats = new Map();
 // {key: 4 character nanoid, value: {
@@ -305,6 +308,12 @@ function sendNotification(username, otherUsername, chatID, type, data) {
         success = true;
     }
     return success;
+}
+
+function menssagesInChat() {
+//  let simpleChats = [];
+//  Array.from(chats.values()).forEach(c => simpleChats.push(c.messages.size));
+//  return simpleChats.reduce((c1, c2) => c1 + c2, 0);
 }
 
 /*  **********************************************
@@ -675,8 +684,10 @@ function managePrivateChat(socket, otherUsername) {
             socket.emit("chat-with", null);
         } else {
             askForPrivateChat(username, otherUsername).then((chatID) => {
-                if (!chatID)
-                    chatID = createPrivateChat([username, otherUsername]);
+                if (!chatID){
+                  chatID = createPrivateChat([username, otherUsername]);
+                  connectionMaster.emit('added-chat', {chatID: chatID, url: port});
+                }
                 socket.join(chatID);
                 socket.emit("chat-with", chatID);
                 sendChatMessages(username, chatID);
@@ -852,6 +863,7 @@ io.on("connection", (socket) => {
     })
 
     socket.on("message", (data) => {
+        messagesCont++;
         log(data);
         const envelope = {
             timestamp: Date.now(),
@@ -890,6 +902,7 @@ io.on("connection", (socket) => {
     socket.on("create-group", () => {
         log(socket.username + " wants to create a group");
         let chatID = createGroupChat(socket.username);
+        connectionMaster.emit('added-chat', {chatID: chatID, url: port});
         socket.join(chatID);
         socket.emit("create-group", chatID);
     })
@@ -953,18 +966,20 @@ io.on("connection", (socket) => {
     Connection to balancers
     ***********************  */
 
-let connection;
-
+let connectionBalancer;
+let conecctionMaster;
 let opts = {
        reconnection: true,
        query: { type: 'nodo', url: port }
    }
 
-connection = socketIO(balancerURL, opts)
+connectionBalancer = socketIO(balancerURL, opts);
+connectionMaster = socketIO(master, opts);
 
-assignEvents(connection);
+assignBalancerEvents(connectionBalancer);
+assignMasterEvents(connectionMaster);
 
-function assignEvents(socket){
+function assignBalancerEvents(socket){
   socket.on('connect_error', function (err) {
       console.log('connecting to another balancer');
       socket.disconnect();
@@ -973,9 +988,16 @@ function assignEvents(socket){
         let server = balancerURL;
         balancerURL = balancerURLBackup;
         balancerURLBackup = server;
-        assignEvents(socket);
+        assignBalancerEvents(socket);
       }, 1500);
 
+  });
+}
+
+function assignMasterEvents(socket){
+  socket.on('health-check', function (err) {
+    socket.emit('health-report', messagesCont);
+    messagesCont = 0;
   });
 }
 
