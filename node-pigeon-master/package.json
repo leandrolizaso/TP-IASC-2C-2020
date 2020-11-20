@@ -1,0 +1,10 @@
+{
+  "name": "node-pigeon-master",
+  "version": "1.0.0",
+  "main": "master.js",
+  "author": "iasc-grupo-1",
+  "license": "MIT",
+  "dependencies": {
+    "socket.io": "^2.3.0"
+  }
+}
