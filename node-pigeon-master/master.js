@@ -18,7 +18,7 @@ const addNodo = (id, nodoUrl) => {
 };
 
 const spawnNodo = async () => {
-  exec('sudo docker run --network="host" -v /var/run/docker.sock:/var/run/docker.sock server ' + serverPort);
+  exec('docker run --network="host" iascgrupo1/server ' + serverPort);
   serverPort ++;
   console.log(nodos);
 };
@@ -43,7 +43,7 @@ function getByValue(map, searchValue) {
 
 var checkInterval = setInterval(function(){io.to('Nodos').emit('health-check');}, 10000);
 
-//var spwanInterval = setInterval(function(){spawnNodo();}, 20000);
+var spawnInterval = setInterval(function(){spawnNodo();}, 10000);
 
 
 
