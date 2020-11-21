@@ -28,8 +28,20 @@ const isSpawnNeccesary = () => {
   return false;
 };
 
-const selectFreeNodo = () => {
+const selectFreeNodo = (socket) => {
   return getByValue(nodosHealh, Math.min(...nodosHealh.values()));
+
+};
+
+const manageChatCopy = (socket, chat, chatID) => {
+  let nodosCopy = new Map(nodosHealh);
+  nodosCopy.delete(socket);
+  let newChatLocation = getByValue(nodosCopy, Math.min(...nodosCopy.values()));
+  newChatLocation.emit('add-chat-copy', {chat: chat, chatID: chatID});
+  chatLocation.push({
+    chatID: chatID,
+    nodo: nodos.get(newChatLocation)
+  });
 
 };
 
@@ -68,6 +80,7 @@ io.on("connection", (socket) => {
         chatID: data.chatID,
         nodo: data.url
       });
+      manageChatCopy(socket.id, data.chat, chatID);
       log(chatLocation);
     })
 
@@ -82,14 +95,13 @@ io.on("connection", (socket) => {
     })
 
     socket.on('health-report', (data) => {
-      nodo = nodos.get(socket.id);
-      nodosHealh.set(nodo, data);
+      nodosHealh.set(socket.id, data);
       //if(isSpawnNeccesary())
       //  spawnNodo();
     })
 
     socket.on('free-nodo', (data) => {
-      socket.emit('free-nodo', selectFreeNodo());
+      socket.emit('free-nodo', selectFreeNodo(socket.id));
     })
 
     socket.on('deleted-nodo', (data) => {

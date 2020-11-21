@@ -465,18 +465,19 @@ function askForMessageTreatment(chatID, envelope) {
         if (isChatHere(chatID)) {
             registerMessage(chatID, envelope);
             resolve(true);
-        } else {
-            const data = {
-                type: reqType.MESSAGE,
-                chatID: chatID,
-                envelope: envelope
-            }
-            requestNodes(data).then(responses => {
-                resolve(responses.includes(true));
-            }).catch((reason) => {
-                reject(reason);
-            })
         }
+
+        const data = {
+            type: reqType.MESSAGE,
+            chatID: chatID,
+            envelope: envelope
+        }
+        requestNodes(data).then(responses => {
+            resolve(responses.includes(true));
+          }).catch((reason) => {
+              reject(reason);
+          })
+
     });
 }
 
@@ -504,18 +505,18 @@ function askForEditMessage(username, envelope) {
             if (canEdit)
                 editMessage(envelope);
             resolve(canEdit);
-        } else {
-            const data = {
-                type: reqType.EDITMESSAGE,
-                username: username,
-                envelope: envelope
-            }
-            requestNodes(data).then(responses => {
-                resolve(responses.includes(true));
-            }).catch((reason) => {
-                reject(reason);
-            })
         }
+        const data = {
+            type: reqType.EDITMESSAGE,
+            username: username,
+            envelope: envelope
+        }
+        requestNodes(data).then(responses => {
+            resolve(responses.includes(true));
+        }).catch((reason) => {
+            reject(reason);
+        })
+
     });
 }
 
@@ -526,18 +527,18 @@ function askForDeleteMessage(username, envelope) {
             if (canDelete)
                 deleteMessage(envelope.chatID, envelope);
             resolve(canDelete);
-        } else {
-            const data = {
-                type: reqType.DELETEMESSAGE,
-                username: username,
-                envelope: envelope
-            }
-            requestNodes(data).then(responses => {
-                resolve(responses.includes(true));
-            }).catch((reason) => {
-                reject(reason);
-            })
         }
+        const data = {
+            type: reqType.DELETEMESSAGE,
+            username: username,
+            envelope: envelope
+        }
+        requestNodes(data).then(responses => {
+            resolve(responses.includes(true));
+        }).catch((reason) => {
+            reject(reason);
+        })
+
     });
 }
 
@@ -592,7 +593,7 @@ function askForRemoveUserFromGroupChat(username, otherUsername, chatID) {
     return new Promise((resolve, reject) => {
         if (isChatHere(chatID)) {
             resolve(removeUserFromGroupChat(username, otherUsername, chatID));
-        } else {
+        }
             const data = {
                 type: reqType.DELETEFROMGROUP,
                 otherUsername: otherUsername,
@@ -604,7 +605,7 @@ function askForRemoveUserFromGroupChat(username, otherUsername, chatID) {
             }).catch((reason) => {
                 reject(reason);
             })
-        }
+
     });
 }
 
@@ -612,7 +613,7 @@ function askForSetPrivilege(adminStatus, otherUsername, username, chatID) {
     return new Promise((resolve, reject) => {
         if (isChatHere(chatID)) {
             resolve(setPrivilege(adminStatus, otherUsername, username, chatID));
-        } else {
+        }
             const data = {
                 type: reqType.SETPRIVILEGE,
                 adminStatus: adminStatus,
@@ -625,7 +626,7 @@ function askForSetPrivilege(adminStatus, otherUsername, username, chatID) {
             }).catch((reason) => {
                 reject(reason);
             })
-        }
+
     });
 }
 
@@ -686,7 +687,7 @@ function managePrivateChat(socket, otherUsername) {
             askForPrivateChat(username, otherUsername).then((chatID) => {
                 if (!chatID){
                   chatID = createPrivateChat([username, otherUsername]);
-                  connectionMaster.emit('added-chat', {chatID: chatID, url: port});
+                  connectionMaster.emit('added-chat', {chat: chats.get(chatID), url: port, chatID: chatID});
                 }
                 socket.join(chatID);
                 socket.emit("chat-with", chatID);
@@ -902,7 +903,7 @@ io.on("connection", (socket) => {
     socket.on("create-group", () => {
         log(socket.username + " wants to create a group");
         let chatID = createGroupChat(socket.username);
-        connectionMaster.emit('added-chat', {chatID: chatID, url: port});
+        connectionMaster.emit('added-chat', {chat: chats.get(chatID), chatID: chatID, url: port});
         socket.join(chatID);
         socket.emit("create-group", chatID);
     })
@@ -995,9 +996,13 @@ function assignBalancerEvents(socket){
 }
 
 function assignMasterEvents(socket){
-  socket.on('health-check', function (err) {
+  socket.on('health-check', function () {
     socket.emit('health-report', messagesCont);
     messagesCont = 0;
+  });
+
+  socket.on('add-chat-copy', function (data) {
+    chats.set(data.chatID, data.chat);
   });
 }
 
