@@ -30,7 +30,6 @@ const isSpawnNeccesary = () => {
 
 const selectFreeNodo = (socket) => {
   return getByValue(nodosHealh, Math.min(...nodosHealh.values()));
-
 };
 
 const manageChatCopy = (socket, chat, chatID) => {
@@ -45,6 +44,24 @@ const manageChatCopy = (socket, chat, chatID) => {
 
 };
 
+const makeChatCopy = (chatID) => {
+  chatLocation = chatLocation.find(c => c.chatID == chatID);
+  if(chatLocation){
+    nodo = getByValue(nodos, chatLocation.nodo);
+    nodo.emit('send-copy', chatID);
+  }
+};
+
+const updateChats = (nodo, socket) => {
+  if(nodos.has(socket)){
+    nodos.delete(socket);
+  }
+  needBackup = chatLocation.filter(c => c.nodo == nodo);
+  chatLocation = chatLocation.filter(c => c.nodo != nodo);
+  needBackup.forEach(c => makeChatCopy(c.chatID));
+
+};
+
 function getByValue(map, searchValue) {
   for (let [key, value] of map.entries()) {
     if (value === searchValue)
@@ -55,7 +72,7 @@ function getByValue(map, searchValue) {
 
 var checkInterval = setInterval(function(){io.to('Nodos').emit('health-check');}, 10000);
 
-var spawnInterval = setInterval(function(){spawnNodo();}, 10000);
+//var spawnInterval = setInterval(function(){spawnNodo();}, 10000);
 
 
 
@@ -80,7 +97,7 @@ io.on("connection", (socket) => {
         chatID: data.chatID,
         nodo: data.url
       });
-      manageChatCopy(socket.id, data.chat, chatID);
+      manageChatCopy(socket.id, data.chat, data.chatID);
       log(chatLocation);
     })
 
@@ -104,6 +121,10 @@ io.on("connection", (socket) => {
       socket.emit('free-nodo', selectFreeNodo(socket.id));
     })
 
+    socket.on('make-copy', (data) => {
+      manageChatCopy(socket.id, data.chat, data.chatID);
+    })
+
     socket.on('deleted-nodo', (data) => {
       chatLocation = chatLocation.filter(c => c.nodo != data.url);
       if(nodos.has(data.socketId)){
@@ -113,10 +134,7 @@ io.on("connection", (socket) => {
 
     socket.on("disconnect", () => {
       let nodo = nodos.get(socket.id);
-      chatLocation = chatLocation.filter(c => c.nodo != nodo);
-      if(nodos.has(socket.id)){
-        nodos.delete(socket.id);
-      }
+      updateChats(nodo, socket.id);
       spawnNodo();
     })
 })

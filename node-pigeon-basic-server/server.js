@@ -1004,6 +1004,10 @@ function assignMasterEvents(socket){
   socket.on('add-chat-copy', function (data) {
     chats.set(data.chatID, data.chat);
   });
+
+  socket.on('send-copy', function (data) {
+    socket.emit('make-copy', {chatID: data, chat: chats.get(data)})
+  });
 }
 
 http.listen(port, () => log("Server listening on port: " + port));
