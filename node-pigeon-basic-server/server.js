@@ -48,6 +48,22 @@ function getUniqueChats(chats) {
     return unique;
 }
 
+function serializeChat(chat) {
+    const serialized = {};
+    serialized.messages = [ ...chat.messages];
+    serialized.users = [ ...chat.users];
+    serialized.isGroup = chat.isGroup;
+    return serialized;
+}
+
+function deserializeChat(serialized) {
+    const chat = {};
+    chat.messages = new Map(serialized.messages);
+    chat.users = new Map(serialized.users);
+    chat.isGroup = serialized.isGroup;
+    return chat;
+}
+
 /*  ********************************************
     Node state management and querying functions
     ********************************************  */
@@ -246,7 +262,6 @@ function isChatHere(chatID) {
 }
 
 function registerMessage(chatID, envelope) {
-    io.to(chatID).emit("message", envelope);
     saveMessage(chatID, envelope);
     if (envelope.expires)
         setTimeout(() => {
@@ -687,7 +702,7 @@ function managePrivateChat(socket, otherUsername) {
             askForPrivateChat(username, otherUsername).then((chatID) => {
                 if (!chatID){
                   chatID = createPrivateChat([username, otherUsername]);
-                  connectionMaster.emit('added-chat', {chat: chats.get(chatID), url: port, chatID: chatID});
+                  connectionMaster.emit('added-chat', {chat: serializeChat(chats.get(chatID)), url: port, chatID: chatID});
                 }
                 socket.join(chatID);
                 socket.emit("chat-with", chatID);
@@ -711,8 +726,10 @@ function managePrivateChat(socket, otherUsername) {
 
 function manageMessage(chatID, envelope) {
     askForMessageTreatment(chatID, envelope).then((success) => {
-        if (success)
+        if (success) {
             log("Message " + envelope.timestamp + " saved");
+            io.to(chatID).emit("message", envelope);
+        }
         else
             log("Message " + envelope.timestamp + " couldn't be saved");
     }).catch((reason) => {
@@ -968,7 +985,7 @@ io.on("connection", (socket) => {
     ***********************  */
 
 let connectionBalancer;
-let conecctionMaster;
+let connectionMaster;
 let opts = {
        reconnection: true,
        query: { type: 'nodo', url: port }
@@ -996,18 +1013,22 @@ function assignBalancerEvents(socket){
 }
 
 function assignMasterEvents(socket){
-  socket.on('health-check', function () {
-    socket.emit('health-report', messagesCont);
-    messagesCont = 0;
-  });
+    socket.on('health-check', function () {
+        log("Sent health report (%i)", messagesCont);
+        socket.emit('health-report', messagesCont);
+        messagesCont = 0;
+    });
 
-  socket.on('add-chat-copy', function (data) {
-    chats.set(data.chatID, data.chat);
-  });
+    socket.on('add-chat-copy', function (data) {
+        log("Received chat to replicate");
+        log(data);
+        chats.set(data.chatID, deserializeChat(data.chat));
+    });
 
-  socket.on('send-copy', function (data) {
-    socket.emit('make-copy', {chatID: data, chat: chats.get(data)})
-  });
+    socket.on('send-copy', function (data) {
+        log("Sent chat to replicate (%s)", data);
+        socket.emit('make-copy', {chatID: data, chat: serializeChat(chats.get(data))})
+    });
 }
 
 http.listen(port, () => log("Server listening on port: " + port));

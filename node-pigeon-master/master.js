@@ -4,11 +4,17 @@ const port = 5000;
 const log = console.log;
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
+const minNodes = 3;
 let serverPort = 3010;
 
-var nodos = new Map();
-var chatLocation = [];
-var nodosHealh = new Map();
+const nodos = new Map();
+//[{"socketID": port}, ...]
+
+const chatLocation = [];
+//[{chatID, nodePort}, ...]
+
+const nodosHealth = new Map();
+//[{"socketID": messagesIn10SecPeriod}, ...]
 
 const addNodo = (id, nodoUrl) => {
   nodoKey = getByValue(nodos, nodoUrl);
@@ -18,37 +24,39 @@ const addNodo = (id, nodoUrl) => {
 };
 
 const spawnNodo = async () => {
-  exec('docker run --network="host" iascgrupo1/server ' + serverPort);
+  exec('docker run --network="host" iascgrupo1/server ' + serverPort).catch(_ => {
+    console.log("Couldnt spawn node at %i", serverPort);
+  });
   serverPort ++;
   console.log(nodos);
 };
 
-const isSpawnNeccesary = () => {
+const isSpawnNecessary = () => {
   //todo: definir politica de carga
   return false;
 };
 
 const selectFreeNodo = (socket) => {
-  return getByValue(nodosHealh, Math.min(...nodosHealh.values()));
+  return getByValue(nodosHealth, Math.min(...nodosHealth.values()));
 };
 
 const manageChatCopy = (socket, chat, chatID) => {
-  let nodosCopy = new Map(nodosHealh);
+  let nodosCopy = new Map(nodosHealth);
   nodosCopy.delete(socket);
   let newChatLocation = getByValue(nodosCopy, Math.min(...nodosCopy.values()));
-  newChatLocation.emit('add-chat-copy', {chat: chat, chatID: chatID});
-  chatLocation.push({
-    chatID: chatID,
-    nodo: nodos.get(newChatLocation)
-  });
-
+  if (newChatLocation) {
+    io.to(newChatLocation).emit('add-chat-copy', {chat: chat, chatID: chatID});
+    chatLocation.push({
+      chatID: chatID,
+      nodo: nodos.get(newChatLocation)
+    });
+  }
 };
 
 const makeChatCopy = (chatID) => {
   chatLocation = chatLocation.find(c => c.chatID == chatID);
   if(chatLocation){
-    nodo = getByValue(nodos, chatLocation.nodo);
-    nodo.emit('send-copy', chatID);
+    io.to(chatLocation).emit('send-copy', chatID);
   }
 };
 
@@ -69,12 +77,13 @@ function getByValue(map, searchValue) {
   }
 }
 
+function initNodes() {
+	for (let i=0; i < minNodes; i++) {
+		spawnNodo();
+	}
+}
 
 var checkInterval = setInterval(function(){io.to('Nodos').emit('health-check');}, 10000);
-
-//var spawnInterval = setInterval(function(){spawnNodo();}, 10000);
-
-
 
 io.on("connection", (socket) => {
 
@@ -97,8 +106,9 @@ io.on("connection", (socket) => {
         chatID: data.chatID,
         nodo: data.url
       });
-      manageChatCopy(socket.id, data.chat, data.chatID);
       log(chatLocation);
+      log(data)
+      manageChatCopy(socket.id, data.chat, data.chatID);
     })
 
     socket.on('initial-nodes', (data) => {
@@ -112,7 +122,7 @@ io.on("connection", (socket) => {
     })
 
     socket.on('health-report', (data) => {
-      nodosHealh.set(socket.id, data);
+      nodosHealth.set(socket.id, data);
       //if(isSpawnNeccesary())
       //  spawnNodo();
     })
@@ -141,3 +151,4 @@ io.on("connection", (socket) => {
 
 
 http.listen(port, () => log("Server on port: " + port));
+//initNodes();
