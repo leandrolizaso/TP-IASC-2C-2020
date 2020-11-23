@@ -1,5 +1,5 @@
 echo "Stopping and removing containers..."
-containers=$(sudo docker ps -q)
+containers=$(sudo docker ps -aq)
 if [ -z "${containers}" ]; then
 	echo "There are no more containers"
 else
