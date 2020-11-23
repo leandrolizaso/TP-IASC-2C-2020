@@ -10,10 +10,10 @@ let serverPort = 3010;
 const nodos = new Map();
 //[{"socketID": port}, ...]
 
-const chatLocation = [];
+let chatLocation = [];
 //[{chatID, nodePort}, ...]
 
-const nodosHealth = new Map();
+let nodosHealth = new Map();
 //[{"socketID": messagesIn10SecPeriod}, ...]
 
 const addNodo = (id, nodoUrl) => {
@@ -43,31 +43,26 @@ const selectFreeNodo = (socket) => {
 const manageChatCopy = (socket, chat, chatID) => {
   let nodosCopy = new Map(nodosHealth);
   nodosCopy.delete(socket);
+  log(nodosCopy, 'Nodos disponibles para copias')
   let newChatLocation = getByValue(nodosCopy, Math.min(...nodosCopy.values()));
   if (newChatLocation) {
     io.to(newChatLocation).emit('add-chat-copy', {chat: chat, chatID: chatID});
-    chatLocation.push({
-      chatID: chatID,
-      nodo: nodos.get(newChatLocation)
-    });
   }
 };
 
 const makeChatCopy = (chatID) => {
-  chatLocation = chatLocation.find(c => c.chatID == chatID);
-  if(chatLocation){
-    io.to(chatLocation).emit('send-copy', chatID);
+  let nodoChat = chatLocation.find(c => c.chatID == chatID);
+  if(nodoChat){
+    io.to(getByValue(nodos, nodoChat.nodo)).emit('send-copy', chatID);
   }
 };
 
 const updateChats = (nodo, socket) => {
-  if(nodos.has(socket)){
-    nodos.delete(socket);
-  }
-  needBackup = chatLocation.filter(c => c.nodo == nodo);
-  chatLocation = chatLocation.filter(c => c.nodo != nodo);
+  needBackup = [...chatLocation].filter(c => c.nodo == nodo);
+  chatLocation = [...chatLocation].filter(c => c.nodo != nodo);
   needBackup.forEach(c => makeChatCopy(c.chatID));
-
+  nodos.delete(socket);
+  nodosHealth.delete(socket);
 };
 
 function getByValue(map, searchValue) {
@@ -84,6 +79,8 @@ function initNodes() {
 }
 
 var checkInterval = setInterval(function(){io.to('Nodos').emit('health-check');}, 10000);
+
+var checkInterval = setInterval(function(){log(chatLocation);}, 10000);
 
 io.on("connection", (socket) => {
 
@@ -135,6 +132,13 @@ io.on("connection", (socket) => {
       manageChatCopy(socket.id, data.chat, data.chatID);
     })
 
+    socket.on('copy-added', (data) => {
+      chatLocation.push({
+        chatID: data,
+        nodo: nodos.get(socket.id)
+      });
+    })
+
     socket.on('deleted-nodo', (data) => {
       chatLocation = chatLocation.filter(c => c.nodo != data.url);
       if(nodos.has(data.socketId)){
@@ -144,6 +148,7 @@ io.on("connection", (socket) => {
 
     socket.on("disconnect", () => {
       let nodo = nodos.get(socket.id);
+      log(nodo, ' disconnected')
       updateChats(nodo, socket.id);
       spawnNodo();
     })

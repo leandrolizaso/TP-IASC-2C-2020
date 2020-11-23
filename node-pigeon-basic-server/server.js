@@ -1023,6 +1023,7 @@ function assignMasterEvents(socket){
         log("Received chat to replicate");
         log(data);
         chats.set(data.chatID, deserializeChat(data.chat));
+        socket.emit('copy-added', data.chatID);
     });
 
     socket.on('send-copy', function (data) {
