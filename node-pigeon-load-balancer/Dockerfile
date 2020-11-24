@@ -3,4 +3,5 @@ WORKDIR /usr/src/balancer
 COPY package*.json ./
 RUN yarn
 COPY . .
-CMD [ "node", "balancer.js" ]
+ENTRYPOINT [ "node",  "balancer.js" ]
+CMD []
