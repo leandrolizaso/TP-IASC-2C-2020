@@ -1,2 +1,2 @@
 echo "Running master..."
-sudo docker run -p 5000:5000 -v $(which docker):/usr/bin/docker -v /var/run/docker.sock:/var/run/docker.sock iascgrupo1/master
+sudo docker run --network="host" -v $(which docker):/usr/bin/docker -v /var/run/docker.sock:/var/run/docker.sock --name iascgrupo1-master iascgrupo1/master 5000

@@ -14,6 +14,7 @@ io.adapter(redis({
 let balancerURL = "http://localhost:4001";
 let balancerURLBackup = "http://localhost:4002";
 let master = "http://localhost:5000";
+let masterBackup = "http://localhost:5001";
 
 let messagesCont = 0;
 
@@ -920,7 +921,7 @@ io.on("connection", (socket) => {
     socket.on("create-group", () => {
         log(socket.username + " wants to create a group");
         let chatID = createGroupChat(socket.username);
-        connectionMaster.emit('added-chat', {chat: chats.get(chatID), chatID: chatID, url: port});
+        connectionMaster.emit('added-chat', {chat: serializeChat(chats.get(chatID)), chatID: chatID, url: port});
         socket.join(chatID);
         socket.emit("create-group", chatID);
     })
@@ -1030,6 +1031,26 @@ function assignMasterEvents(socket){
         log("Sent chat to replicate (%s)", data);
         socket.emit('make-copy', {chatID: data, chat: serializeChat(chats.get(data))})
     });
+
+    socket.on("connect_error", () => {
+        reconnectToAlternativeMaster(socket);
+    })
+
+    socket.on("disconnect", () => {
+        reconnectToAlternativeMaster(socket);
+    });
+}
+
+function reconnectToAlternativeMaster(socket) {
+    console.log('connecting to another master');
+    socket.disconnect();
+    setTimeout(() => {
+        connectionMaster = socketIO(masterBackup, opts);
+        let server = master;
+        master = masterBackup;
+        masterBackup = server;
+        assignMasterEvents(connectionMaster);
+    }, 1500);
 }
 
 http.listen(port, () => log("Server listening on port: " + port));

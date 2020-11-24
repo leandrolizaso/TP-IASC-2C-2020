@@ -3,4 +3,4 @@ WORKDIR /usr/src/master
 COPY package*.json ./
 RUN yarn
 COPY . .
-CMD [ "node", "master.js" ]
+ENTRYPOINT [ "node",  "master.js" ]
