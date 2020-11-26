@@ -29,3 +29,9 @@ Se planteó una arquitectura distribuida compuesta por las siguientes partes:
 * Ejecutar el script ```./run_master_balancers_pubsub.sh``` dentro del directorio para ejecutar el **back-end**
 * Ejecutar el script ```./client.sh``` por cada cliente que se quiera utilizar
 * Para terminar la ejecución del sistema ejecute ```./remove_containers.sh``` para sacar los contenedores generados
+
+#### Instrucciones para generar carga en el sistema
+* Tener instalado **artillery** (```yarn global add artillery``` o ```npm install -g artillery```)
+* Ir al directorio ```/load-testing```
+* Ejecutar el script ```./run_load.sh [yamlScript] [port]``` para ejecutar un script de carga al nodo ubicado en el puerto *port*
+* Por ahora se ofrece el script ```basic_users_flow.yaml``` que simula un uso normal del sistema con usuarios que chatean entre sí con mensajes cada 1 segundo

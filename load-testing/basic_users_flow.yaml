@@ -1,0 +1,46 @@
+
+config:
+  target: "http://localhost:{{ port }}"
+  phases:
+    - duration: 10
+      arrivalRate: 1
+    - duration: 10
+      arrivalRate: 5
+  processor: "./helper.js"
+
+scenarios:
+  - name: Usuario que se solo se logea
+    weight: 75
+    engine: socketio
+    flow:
+      - function: registerUsername
+      - emit:
+          channel: login
+          data: '{{ username }}'
+      - think: 60
+
+  - name: Usuario que habla con cualquier otro
+    weight: 25
+    engine: socketio
+    flow:
+      - function: registerUsername
+      - function: setRandomUserToChat
+      - emit:
+          channel: login
+          data: '{{ username }}'
+      - think: 1
+      - emit:
+          channel: chat-with
+          data: '{{ otherUsername }}'
+          response:
+            channel: chat-with
+            data:
+              as: chatID
+      - loop:
+          - function: setMessage
+          - emit:
+            channel: '{{ chatID }}'
+            data: '{{ message }}'
+          - think: 1
+        count: 50
+      - think: 5
