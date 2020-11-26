@@ -109,8 +109,8 @@ const spawnNodo = async () => {
 const isSpawnNecessary = () => {
   const healths = [ ...nodosHealth].map(([_, health]) => health); 
   const average = healths.reduce((total, health) => total + health, 0) / healths.length;
-  //10 msjs promedio en todos los nodos a modo de prueba
-  return average > 10;
+  //100 msjs promedio en todos los nodos a modo de prueba
+  return average > 100;
 };
 
 const selectFreeNodo = (socket) => {
