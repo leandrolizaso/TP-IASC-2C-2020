@@ -1,6 +1,5 @@
 
 config:
-  target: "http://localhost:{{ port }}"
   phases:
     - duration: 10
       arrivalRate: 1
@@ -10,17 +9,17 @@ config:
 
 scenarios:
   - name: Usuario que se solo se logea
-    weight: 75
+    weight: 10
     engine: socketio
     flow:
       - function: registerUsername
       - emit:
           channel: login
           data: '{{ username }}'
-      - think: 60
+      - think: 30
 
   - name: Usuario que habla con cualquier otro
-    weight: 25
+    weight: 90
     engine: socketio
     flow:
       - function: registerUsername
@@ -32,15 +31,12 @@ scenarios:
       - emit:
           channel: chat-with
           data: '{{ otherUsername }}'
-          response:
-            channel: chat-with
-            data:
-              as: chatID
+      - think: 1
       - loop:
           - function: setMessage
           - emit:
-            channel: '{{ chatID }}'
-            data: '{{ message }}'
-          - think: 1
-        count: 50
+              channel: message
+              data: {"message": "{{ message }}" }
+          - think: 0.5
+        count: 100
       - think: 5

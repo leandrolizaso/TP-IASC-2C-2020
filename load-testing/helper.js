@@ -38,6 +38,5 @@ function registerUsername(context, _, done) {
 function setRandomUserToChat(context, _, done) {
 	const index = Math.floor(Math.random() * USERS.length);
 	context.vars.otherUsername = USERS[index] || "ninguno";
-	console.log("chat with "+context.vars.otherUsername);
 	return done();
 }

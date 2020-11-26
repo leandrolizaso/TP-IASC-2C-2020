@@ -4,7 +4,8 @@ const io = require("socket.io")(http);
 const { nanoid } = require("nanoid");
 const args = process.argv;
 const port = args[2];
-const log = console.log;
+const DEBUG = false;
+const log = DEBUG ? console.log : () => {};
 const socketIO = require("socket.io-client");
 io.adapter(redis({
     host: "127.0.0.1",
@@ -706,6 +707,7 @@ function managePrivateChat(socket, otherUsername) {
                   connectionMaster.emit('added-chat', {chat: serializeChat(chats.get(chatID)), url: port, chatID: chatID});
                 }
                 socket.join(chatID);
+                socket.room = chatID;
                 socket.emit("chat-with", chatID);
                 sendChatMessages(username, chatID);
                 const invite = {
@@ -799,6 +801,7 @@ function manageJoinChat(socket, chatID) {
         });
         if (success) {
             socket.join(chatID);
+            socket.room = chatID;
             sendChatMessages(username, chatID);
         } else
             log(username + " couldn't join " + chatID);
@@ -889,7 +892,7 @@ io.on("connection", (socket) => {
             message: data.message,
             username: socket.username
         }
-        manageMessage(data.room, envelope)
+        manageMessage(socket.room, envelope)
     })
 
     socket.on("secure-message", (data) => {
@@ -900,15 +903,17 @@ io.on("connection", (socket) => {
             username: socket.username,
             expires: data.timeout * 1000
         };
-        manageMessage(data.room, envelope);
+        manageMessage(socket.room, envelope);
     })
 
     socket.on("edit-message", (editEnvelope) => {
+        editEnvelope.chatID = socket.room;
         log(socket.username + " wants to edit message " + editEnvelope.timestamp);
         manageEditMessage(socket, editEnvelope);
     })
 
     socket.on("delete-message", (deleteEnvelope) => {
+        deleteEnvelope.chatID = socket.room;
         log(socket.username + " wants to delete message " + deleteEnvelope.timestamp);
         manageDeleteMessage(socket, deleteEnvelope)
     })
@@ -923,16 +928,18 @@ io.on("connection", (socket) => {
         let chatID = createGroupChat(socket.username);
         connectionMaster.emit('added-chat', {chat: serializeChat(chats.get(chatID)), chatID: chatID, url: port});
         socket.join(chatID);
+        socket.room = chatID;
         socket.emit("create-group", chatID);
     })
 
     socket.on("invite-to-group", (invite) => {
+        invite.chatID = socket.room;
         log(socket.username + " wants to invite to group " + invite.username);
         manageGroupInvite(socket, invite);
     })
 
     socket.on("remove-from-group", (groupRemove) => {
-        const chatID = groupRemove.chatID;
+        const chatID = socket.room;
         const otherUsername = groupRemove.username;
         log(socket.username + " wants to remove from group " + otherUsername);
         manageRemoveUserFromGroupChat(socket, otherUsername, chatID);
@@ -941,7 +948,7 @@ io.on("connection", (socket) => {
     socket.on("privilege", (permission) => {
         const otherUsername = permission.username;
         const adminStatus = permission.admin ;
-        const chatID = permission.chatID;
+        const chatID = socket.chatID;
         log(socket.username + " wants to set privilege to " + otherUsername);
         manageSetPrivilege(socket, otherUsername, adminStatus, chatID);
 
@@ -960,6 +967,7 @@ io.on("connection", (socket) => {
     socket.on("leave-chat", (id) => {
         log(socket.username + " wants to leave chat " + id);
         socket.leave(id);
+        socket.room = null;
     })
 
     socket.on("logoff", () => {
@@ -969,6 +977,7 @@ io.on("connection", (socket) => {
                 if (room !== socket.id)
                     socket.leave(room)
             });
+            socket.room = null;
             log(socket.username + " logged off");
         }
     })
