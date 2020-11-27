@@ -7,6 +7,7 @@ const log = console.log;
 const util = require('util');
 const exec = util.promisify(require('child_process').exec);
 const minNodes = 3;
+const healthsCapacity = 3;
 let serverPort = 3010;
 
 const nodos = new Map();
@@ -17,7 +18,7 @@ let chatLocation = [];
 //Only this structure is needed to be synchronized between master and its backup
 
 let nodosHealth = new Map();
-//[{"socketID": messagesIn10SecPeriod}, ...]
+//[{"socketID": [last N messagesIn10SecPeriod]}, ...]
 
 let shuttingDown = [];
 //["nodo port", ...]
@@ -109,20 +110,30 @@ const spawnNodo = async () => {
   console.log(nodos);
 };
 
-const isSpawnNecessary = () => {
-  const healths = [ ...nodosHealth].map(([_, health]) => health);
-  const average = healths.reduce((total, health) => total + health, 0) / healths.length;
-  //100 msjs promedio en todos los nodos a modo de prueba
-  return average > 100;
+function average(values) {
+  return values.reduce((total, value) => total + value, 0) / values.length;
+}
+
+function isSpawnNecessary() {
+  const averages = [ ...nodosHealth].map(([_, healths]) => average(healths));
+  return averages.every(average => average > 100) && nodosHealth.size > 0;
 };
 
-const selectFreeNodo = (socket) => {
-  return getByValue(nodosHealth, Math.min(...nodosHealth.values()));
-};
+function addHealthReport(id, health) {
+  if (!nodosHealth.has(id))
+    nodosHealth.set(id, []);
+  const healths = nodosHealth.get(id);
+  healths.push(health);
+  if (healths.length > healthsCapacity)
+    healths.shift();
+}
 
 const manageChatCopy = (socket, chat, chatID) => {
   let nodosCopy = new Map(nodosHealth);
   nodosCopy.delete(socket);
+  for (let [nodo, healths] of nodosCopy.entries()) {
+    nodosCopy.set(nodo, average(healths));
+  }
   log(nodosCopy, 'Nodos disponibles para copias')
   let newChatLocation = getByValue(nodosCopy, Math.min(...nodosCopy.values()));
   if (newChatLocation) {
@@ -167,7 +178,7 @@ var checkInterval = setInterval(function(){
   }, 1000); //les damos 1s para reportar su salud y de ahí vemos si es necesario escalar
 }, 10000);
 
-var checkInterval = setInterval(function(){log(chatLocation);}, 10000);
+var checkInterval = setInterval(function(){log("#Chats (including replicas): " + chatLocation.length);}, 10000);
 
 io.on("connection", (socket) => {
 
@@ -215,11 +226,7 @@ function assignNodeEvents(socket) {
   })
 
   socket.on('health-report', (data) => {
-    nodosHealth.set(socket.id, data);
-  })
-
-  socket.on('free-nodo', (data) => {
-    socket.emit('free-nodo', selectFreeNodo(socket.id));
+    addHealthReport(socket.id, data);
   })
 
   socket.on('make-copy', (data) => {

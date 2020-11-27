@@ -4,7 +4,7 @@ const io = require("socket.io")(http);
 const { nanoid } = require("nanoid");
 const args = process.argv;
 const port = args[2];
-const DEBUG = false;
+const DEBUG = true;
 const log = DEBUG ? console.log : () => {};
 const socketIO = require("socket.io-client");
 io.adapter(redis({
