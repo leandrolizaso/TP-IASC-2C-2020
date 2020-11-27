@@ -19,6 +19,9 @@ let chatLocation = [];
 let nodosHealth = new Map();
 //[{"socketID": messagesIn10SecPeriod}, ...]
 
+let shuttingDown = [];
+//["nodo port", ...]
+
 /**
   Main master & backup functionality
 */
@@ -31,7 +34,7 @@ if (altPort) {
   //Es el master backup
   connectToAlternative("backup", altPort);
 } else {
-  
+
 }
 
 function connectToAlternative(type, url) {
@@ -107,7 +110,7 @@ const spawnNodo = async () => {
 };
 
 const isSpawnNecessary = () => {
-  const healths = [ ...nodosHealth].map(([_, health]) => health); 
+  const healths = [ ...nodosHealth].map(([_, health]) => health);
   const average = healths.reduce((total, health) => total + health, 0) / healths.length;
   //100 msjs promedio en todos los nodos a modo de prueba
   return average > 100;
@@ -223,6 +226,14 @@ function assignNodeEvents(socket) {
     manageChatCopy(socket.id, data.chat, data.chatID);
   })
 
+  socket.on('can-shutdown', () => {
+    if((nodos.size - shuttingDown.length) > 3){
+      console.log('shutting down ', nodos.get(socket.id))
+      socket.emit('shutdown');
+      shuttingDown.push(nodos.get(socket.id));
+    }
+  })
+
   socket.on('copy-added', (data) => {
     const locationEntry = {
       chatID: data,
@@ -236,7 +247,11 @@ function assignNodeEvents(socket) {
     let nodo = nodos.get(socket.id);
     log(nodo, ' disconnected')
     updateChats(nodo, socket.id);
-    spawnNodo();
+    let index = shuttingDown.indexOf(nodo);
+    if(index > -1)
+      shuttingDown.splice(index, 1);
+    else
+      spawnNodo();
   })
 }
 

@@ -18,6 +18,7 @@ let master = "http://localhost:5000";
 let masterBackup = "http://localhost:5001";
 
 let messagesCont = 0;
+let shutdown = null;
 
 const chats = new Map();
 // {key: 4 character nanoid, value: {
@@ -1025,6 +1026,12 @@ function assignBalancerEvents(socket){
 function assignMasterEvents(socket){
     socket.on('health-check', function () {
         log("Sent health report (%i)", messagesCont);
+
+        if (messagesCont == 0)
+          restartInactivity();
+        else
+          stopInactivity();
+
         socket.emit('health-report', messagesCont);
         messagesCont = 0;
     });
@@ -1045,6 +1052,10 @@ function assignMasterEvents(socket){
         reconnectToAlternativeMaster(socket);
     })
 
+    socket.on("shutdown", () => {
+        process.exit();
+    })
+
     socket.on("disconnect", () => {
         reconnectToAlternativeMaster(socket);
     });
@@ -1061,5 +1072,21 @@ function reconnectToAlternativeMaster(socket) {
         assignMasterEvents(connectionMaster);
     }, 1500);
 }
+
+function askShutdown(){
+  connectionMaster.emit('can-shutdown');
+};
+
+function restartInactivity(){
+  if (!shutdown)
+     shutdown = setTimeout(function(){askShutdown();}, 30000)
+
+}
+
+function stopInactivity(){
+  clearTimeout(shutdown);
+  shutdown = null;
+}
+
 
 http.listen(port, () => log("Server listening on port: " + port));
