@@ -1,4 +1,3 @@
-
 config:
   phases:
     - duration: 10
@@ -31,12 +30,18 @@ scenarios:
       - emit:
           channel: chat-with
           data: '{{ otherUsername }}'
+          response:
+            channel: chat-with
+            capture:
+              - json: $
+                as: chatID
+      - function: rememberChat
       - think: 1
       - loop:
           - function: setMessage
           - emit:
               channel: message
-              data: {"message": "{{ message }}" }
-          - think: 0.5
+              data: {"message": "{{ message }}", "chatID": "{{ chatID }}"}
+          - think: 1
         count: 100
       - think: 5

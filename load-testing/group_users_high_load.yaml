@@ -1,0 +1,63 @@
+config:
+  timeout: 30
+  phases:
+    - duration: 100
+      arrivalRate: 10
+  processor: "./helper.js"
+
+scenarios:
+  - name: Usuario que espera a ser invitado a un grupo para hablar
+    weight: 85
+    engine: socketio
+    flow:
+      - function: registerUserForGroup
+      - emit:
+          channel: login
+          data: '{{ username }}'
+          response:
+            channel: chat-group-invite
+            capture:
+              - json: $.id
+                as: chatID
+      - emit:
+          channel: join-chat
+          data: "{{ chatID }}"
+      - think: 1
+      - loop:
+          - function: setMessage
+          - emit:
+              channel: message
+              data: {"message": "{{ message }}"}
+          - think: 0.1
+        count: 300
+
+  - name: Usuario que invita a otros y habla
+    weight: 15
+    engine: socketio
+    flow:
+      - function: registerUsername
+      - emit:
+          channel: login
+          data: '{{ username }}'
+      - think: 1
+      - emit:
+          channel: create-group
+          response:
+            channel: create-group
+            capture:
+              - json: $
+                as: chatID
+      - function: rememberChat
+      - function: prepareUsersToInvite
+      - loop:
+          - emit:
+              channel: invite-to-group
+              data: {"username": "{{ $loopElement }}", "chatID": "{{ chatID }}"}
+        over: users
+      - loop:
+          - function: setMessage
+          - emit:
+              channel: message
+              data: {"message": "{{ message }}"}
+          - think: 0.1
+        count: 300

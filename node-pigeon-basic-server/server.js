@@ -4,7 +4,7 @@ const io = require("socket.io")(http);
 const { nanoid } = require("nanoid");
 const args = process.argv;
 const port = args[2];
-const DEBUG = true;
+const DEBUG = false;
 const log = DEBUG ? console.log : () => {};
 const socketIO = require("socket.io-client");
 io.adapter(redis({
@@ -21,7 +21,7 @@ let messagesCont = 0;
 let shutdown = null;
 
 const chats = new Map();
-// {key: 4 character nanoid, value: {
+// {key: 6 character nanoid, value: {
 //                                      messages: Map{key: timestamp, value: {message, username}},
 //                                      users: Map{key: username, value: isAdmin},
 //                                      isGroup: Boolean}
@@ -35,7 +35,7 @@ const users = new Map();
     ******************  */
 
 function generateID() {
-    return nanoid(4);
+    return nanoid(6);
 }
 
 function getMapKeys(map) {
@@ -889,7 +889,8 @@ io.on("connection", (socket) => {
         messagesCont++;
         log(data);
         const envelope = {
-            timestamp: Date.now(),
+            //porque hay mensajes que llegan en el mismo ms, entonces le agregamos factor azar
+            timestamp: Date.now()*100+Math.floor(Math.random()*100),
             message: data.message,
             username: socket.username
         }
