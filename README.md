@@ -35,6 +35,6 @@ Se planteó una arquitectura distribuida compuesta por las siguientes partes:
 * A modo de referencia, los 3 nodos iniciales del sistema tienen los puertos **3011**, **3012** y **3013**
 
 ##### Scripts de carga
-* ```basic_users_flow.yaml```: simula un uso normal de un nodo con 60 usuarios que chatean entre sí con mensajes cada 1 segundo, se puede observar que no es mucha carga, por lo cual no se escala el sistema si se aplica esta carga, para las siguientes cargas sí se escala
+* ```basic_users_flow.yaml```: simula un uso normal de un nodo con 60 usuarios que chatean entre sí con mensajes cada 1 segundo, se puede observar que no es mucha carga, por lo cual no se escala el sistema si se aplica esta carga a todos los nodos, para las siguientes cargas sí se escala
 * ```basic_users_high_flow.yaml```: simula un uso alto de un nodo con 60 usuarios que chatean entre sí con mensajes cada 100 milisegundos
 * ```group_users_high_load.yaml```: simula un uso exagerado de un nodo con 1000 usuarios que chatean entre sí con mensajes cada 1 segundo
