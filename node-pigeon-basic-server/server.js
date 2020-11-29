@@ -1017,7 +1017,7 @@ function assignBalancerEvents(socket){
 
 function assignMasterEvents(socket){
     socket.on('health-check', function () {
-        log("Sent health report (%i)", messagesCont);
+        console.log("Sent health report (%i)", messagesCont);
 
         if (messagesCont == 0)
           restartInactivity();

@@ -1,0 +1,47 @@
+config:
+  phases:
+    - duration: 10
+      arrivalRate: 1
+    - duration: 10
+      arrivalRate: 5
+  processor: "./helper.js"
+
+scenarios:
+  - name: Usuario que se solo se logea
+    weight: 10
+    engine: socketio
+    flow:
+      - function: registerUsername
+      - emit:
+          channel: login
+          data: '{{ username }}'
+      - think: 30
+
+  - name: Usuario que habla con cualquier otro
+    weight: 90
+    engine: socketio
+    flow:
+      - function: registerUsername
+      - function: setRandomUserToChat
+      - emit:
+          channel: login
+          data: '{{ username }}'
+      - think: 1
+      - emit:
+          channel: chat-with
+          data: '{{ otherUsername }}'
+          response:
+            channel: chat-with
+            capture:
+              - json: $
+                as: chatID
+      - function: rememberChat
+      - think: 1
+      - loop:
+          - function: setMessage
+          - emit:
+              channel: message
+              data: {"message": "{{ message }}", "chatID": "{{ chatID }}"}
+          - think: 1
+        count: 100
+      - think: 5
