@@ -141,5 +141,8 @@ io.on("connection", (socket) => {
     })
 })
 
+var nodosInterval = setInterval(function(){
+  console.log([...nodos]);
+}, 10000);
 
 http.listen(port, () => log("Server on port: " + port));
