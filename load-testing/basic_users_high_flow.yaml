@@ -42,6 +42,6 @@ scenarios:
           - emit:
               channel: message
               data: {"message": "{{ message }}", "chatID": "{{ chatID }}"}
-          - think: 1
-        count: 100
+          - think: 0.1
+        count: 600
       - think: 5
