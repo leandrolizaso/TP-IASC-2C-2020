@@ -20,7 +20,6 @@ const selectNodo = () => {
       index = 0;
 
     if(cant > 0){
-      index++;
     	return urlNodos[index];
     }else {
     	return '';
@@ -105,7 +104,11 @@ io.on("connection", (socket) => {
       }
     }
     else{
-    	socket.emit('nodo', selectNodo());
+      let nodo = selectNodo();
+      if(nodo == null){
+        nodo = selectNodo();
+      }
+    	socket.emit('nodo', nodo);
       increaseIndex();
     }
 
@@ -140,10 +143,5 @@ io.on("connection", (socket) => {
       nodos.delete(socket.id);
     })
 })
-
-var nodosInterval = setInterval(function(){
-  console.log([...nodos]);
-  console.log(io.sockets.clients());
-}, 10000);
 
 http.listen(port, () => log("Server on port: " + port));
