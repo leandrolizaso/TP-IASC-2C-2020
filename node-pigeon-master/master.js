@@ -1,5 +1,5 @@
 const http = require("http").createServer();
-const io = require("socket.io")(http);
+const io = require("socket.io")(http, {pingTimeout: 30000, pingInterval: 60000});
 const ioClient = require("socket.io-client");
 const args = process.argv.slice(2);
 const port = args[0];
@@ -220,8 +220,6 @@ function assignNodeEvents(socket) {
     };
     chatLocation.push(locationEntry);
     synchronizeBackup("added-location", locationEntry);
-    log(chatLocation);
-    log(data)
     manageChatCopy(socket.id, data.chat, data.chatID);
   })
 

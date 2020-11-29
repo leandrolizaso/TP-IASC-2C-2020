@@ -59,10 +59,11 @@ function registerUserForGroup(context, _, done) {
 
 function prepareUsersToInvite(context, _, done) {
 	context.vars.users = [];
-	Array(10).fill().forEach(() => {
+	Array(15).fill().forEach(() => {
 		const user = GROUPUSERS.shift();
 		if (user)
 			context.vars.users.push(user);
 	});
+	console.log(context.vars.username+" invited #"+context.vars.users.length+" to "+context.vars.chatID);
 	return done();
 }

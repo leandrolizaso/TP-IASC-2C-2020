@@ -1,6 +1,6 @@
 const http = require("http").createServer();
 const redis = require('socket.io-redis');
-const io = require("socket.io")(http);
+const io = require("socket.io")(http, {pingTimeout: 60000, pingInterval: 60000});
 const { nanoid } = require("nanoid");
 const args = process.argv;
 const port = args[2];
@@ -564,20 +564,17 @@ function askForGroupInvite(username, invite) {
     return new Promise((resolve, reject) => {
         askForUserConnected(invite.username).then(connected => {
             if (connected) {
-                if (isChatHere(invite.chatID)) {
-                    resolve(treatGroupAdd(username, invite));
-                } else {
-                    const data = {
-                        type: reqType.GROUPADD,
-                        username: username,
-                        invite: invite
-                    }
-                    requestNodes(data).then(responses => {
-                        resolve(responses.includes(true));
-                    }).catch((reason) => {
-                        reject(reason);
-                    })
+                treatGroupAdd(username, invite);
+                const data = {
+                    type: reqType.GROUPADD,
+                    username: username,
+                    invite: invite
                 }
+                requestNodes(data).then(responses => {
+                    resolve(responses.includes(true));
+                }).catch((reason) => {
+                    reject(reason);
+                })
             }
             else {
                 resolve(false);
@@ -609,42 +606,36 @@ function askForCanJoinChat(username, chatID) {
 
 function askForRemoveUserFromGroupChat(username, otherUsername, chatID) {
     return new Promise((resolve, reject) => {
-        if (isChatHere(chatID)) {
-            resolve(removeUserFromGroupChat(username, otherUsername, chatID));
+        removeUserFromGroupChat(username, otherUsername, chatID);
+        const data = {
+            type: reqType.DELETEFROMGROUP,
+            otherUsername: otherUsername,
+            username: username,
+            chatID: chatID
         }
-            const data = {
-                type: reqType.DELETEFROMGROUP,
-                otherUsername: otherUsername,
-                username: username,
-                chatID: chatID
-            }
-            requestNodes(data).then(responses => {
-                resolve(responses.includes(true));
-            }).catch((reason) => {
-                reject(reason);
-            })
-
+        requestNodes(data).then(responses => {
+            resolve(responses.includes(true));
+        }).catch((reason) => {
+            reject(reason);
+        })
     });
 }
 
 function askForSetPrivilege(adminStatus, otherUsername, username, chatID) {
     return new Promise((resolve, reject) => {
-        if (isChatHere(chatID)) {
-            resolve(setPrivilege(adminStatus, otherUsername, username, chatID));
+        setPrivilege(adminStatus, otherUsername, username, chatID);
+        const data = {
+            type: reqType.SETPRIVILEGE,
+            adminStatus: adminStatus,
+            otherUsername: otherUsername,
+            username: username,
+            chatID: chatID
         }
-            const data = {
-                type: reqType.SETPRIVILEGE,
-                adminStatus: adminStatus,
-                otherUsername: otherUsername,
-                username: username,
-                chatID: chatID
-            }
-            requestNodes(data).then(responses => {
-                resolve(responses.includes(true));
-            }).catch((reason) => {
-                reject(reason);
-            })
-
+        requestNodes(data).then(responses => {
+            resolve(responses.includes(true));
+        }).catch((reason) => {
+            reject(reason);
+        })
     });
 }
 
