@@ -5,6 +5,8 @@
   "author": "iasc-grupo-1",
   "license": "MIT",
   "dependencies": {
-    "socket.io": "^2.3.0"
+    "socket.io": "^2.3.0",
+    "node-os-utils": "^1.3.2",
+    "socket.io-client": "^2.3.1"
   }
 }

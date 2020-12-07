@@ -9,6 +9,9 @@ const exec = util.promisify(require('child_process').exec);
 const minNodes = 3;
 const healthsCapacity = 3;
 let serverPort = 3010;
+var osu = require('node-os-utils');
+let conexiones =0;
+const socketMonitor = ioClient('http://localhost:5005');
 
 const nodos = new Map();
 //[{"socketID": port}, ...]
@@ -181,7 +184,7 @@ var checkInterval = setInterval(function(){
 var checkInterval = setInterval(function(){log("#Chats (including replicas): " + chatLocation.length);}, 10000);
 
 io.on("connection", (socket) => {
-
+  conexiones++
     log(socket.handshake.query.type + " connected");
 
     if (socket.handshake.query.type == 'nodo') {
@@ -249,6 +252,7 @@ function assignNodeEvents(socket) {
   })
 
   socket.on("disconnect", () => {
+    conexiones--
     let nodo = nodos.get(socket.id);
     log(nodo, ' disconnected')
     updateChats(nodo, socket.id);
@@ -259,5 +263,68 @@ function assignNodeEvents(socket) {
       spawnNodo();
   })
 }
+
+socketMonitor.on('heartbeat', (msg) => {
+
+  promiseList = [osu.cpu.usage()
+      .then(cpuPercentage => {
+          return cpuPercentage
+      }), osu.mem.info()
+          .then(info => {
+              return info.usedMemMb
+          }), osu.mem.info()
+              .then(info => {
+                  return info.freeMemPercentage
+              })]
+
+  Promise.all(promiseList).then(data => {
+
+    socketMonitor.emit
+      ('heartbeat', {
+          'Nombre': osu.os.hostname(),
+          'SocketID': socketMonitor.id,
+          'Rol': 'Master',
+          'CPUUsage': data[0] +'%',
+          'MemUsed': data[1] + 'MB',
+          'MemFree': data[2] + '%',
+          'Conexiones':conexiones,
+          'Time' : Date.now()-msg,
+          'Port' : port,
+          'Uptime' : Math.round(osu.os.uptime()/3600)
+      })
+  })
+  
+});
+
+socketMonitor.on('heartbeat10', () => {
+  promiseList = [osu.cpu.usage()
+      .then(cpuPercentage => {
+          return cpuPercentage
+      }), osu.mem.info()
+          .then(info => {
+              return info.usedMemMb
+          }), osu.mem.info()
+              .then(info => {
+                  return info.freeMemPercentage
+              })]
+
+  Promise.all(promiseList).then(data => {
+
+    socketMonitor.emit
+      ('heartbeat10', {
+          'Nombre': osu.os.hostname(),
+          'SocketID': socketMonitor.id,
+          'Rol': 'Master',
+          'CPUUsage': data[0] +'%',
+          'MemUsed': data[1] + 'MB',
+          'MemFree': data[2] + '%',
+          'Conexiones':conexiones,
+          'Uptime' : Math.round(osu.os.uptime()/3600)
+
+      })
+  })
+  
+});
+
 
 http.listen(port, () => log("Server on port: " + port));
