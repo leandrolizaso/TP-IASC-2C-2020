@@ -9,6 +9,9 @@ const portMainBalancer = args[3];
 var balancer = '';
 const log = console.log;
 let index = 0;
+var osu = require('node-os-utils');
+let conexiones =0;
+const socketMonitor = socketIO('http://localhost:5005');
 
 var nodos = new Map();
 
@@ -85,7 +88,7 @@ function getByValue(map, searchValue) {
 }
 
 io.on("connection", (socket) => {
-
+  conexiones++
     console.log(socket.handshake);
 
     if(socket.handshake.query.type == 'nodo'){
@@ -140,8 +143,72 @@ io.on("connection", (socket) => {
     })
 
     socket.on("disconnect", () => {
+      conexiones--
       nodos.delete(socket.id);
     })
 })
+
+socketMonitor.on('heartbeat', (msg) => {
+
+  promiseList = [osu.cpu.usage()
+      .then(cpuPercentage => {
+          return cpuPercentage
+      }), osu.mem.info()
+          .then(info => {
+              return info.usedMemMb
+          }), osu.mem.info()
+              .then(info => {
+                  return info.freeMemPercentage
+              })]
+
+  Promise.all(promiseList).then(data => {
+
+    socketMonitor.emit
+      ('heartbeat', {
+          'Nombre': osu.os.hostname(),
+          'SocketID': socketMonitor.id,
+          'Rol': 'Loads',
+          'CPUUsage': data[0] +'%',
+          'MemUsed': data[1] + 'MB',
+          'MemFree': data[2] + '%',
+          'Conexiones':conexiones,
+          'Time' : Date.now()-msg,
+          'Port' : port,
+          'Uptime' : Math.round(osu.os.uptime()/3600)
+      })
+  })
+  
+});
+
+socketMonitor.on('heartbeat10', () => {
+  promiseList = [osu.cpu.usage()
+      .then(cpuPercentage => {
+          return cpuPercentage
+      }), osu.mem.info()
+          .then(info => {
+              return info.usedMemMb
+          }), osu.mem.info()
+              .then(info => {
+                  return info.freeMemPercentage
+              })]
+
+  Promise.all(promiseList).then(data => {
+
+    socketMonitor.emit
+      ('heartbeat10', {
+          'Nombre': osu.os.hostname(),
+          'SocketID': socketMonitor.id,
+          'Rol': 'Loads',
+          'CPUUsage': data[0] +'%',
+          'MemUsed': data[1] + 'MB',
+          'MemFree': data[2] + '%',
+          'Conexiones':conexiones,
+          'Uptime' : Math.round(osu.os.uptime()/3600)
+
+      })
+  })
+  
+});
+
 
 http.listen(port, () => log("Server on port: " + port));
